@@ -21,7 +21,7 @@ CREATORS = [
     {"handle": "susea"},
     {"handle": "Square-Creator-19579394c90dc"},
     {"handle": "Chungorcrypto"},
-    {"handle": "SaMnAtIoN"}, # Test Account
+    {"handle": "SaMnAtIoN00"}, # Test Account
 ]
 
 HEADERS = {
