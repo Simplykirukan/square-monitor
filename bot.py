@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import uuid
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
@@ -19,14 +20,23 @@ CREATORS = [
     {"handle": "susea"},
     {"handle": "Square-Creator-19579394c90dc"},
     {"handle": "Chungorcrypto"},
-    {"handle": "samnation"}, # Test Account
+    {"handle": "SaMnAtIoN"}, # Test Account
 ]
 
+# Set up browser fingerprinting headers
+SESSION = requests.Session()
+B_GUID = str(uuid.uuid4()).replace("-", "").upper()
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Accept": "application/json, text/plain, */*",
-    "clienttype": "web",
-    "lang": "en"
+    "Accept-Language": "en-US,en;q=0.9",
+    "Origin": "https://www.binance.com",
+    "Referer": "https://www.binance.com/en/square",
+    "Client-Type": "web",
+    "Lang": "en",
+    "B-Guid": B_GUID,
+    "B-Culture": "en",
+    "X-Request-Id": B_GUID,
 }
 
 # Mini web server for Render health checks
@@ -50,24 +60,25 @@ def run_health_server():
     server.serve_forever()
 
 def fetch_latest_post(handle):
+    # Binance requires username= not handle= now for profile queries
     url = f"https://www.binance.com/bapi/composite/v1/public/pgc/feed/user/query?username={handle}&page=1&pageSize=1"
     try:
-        res = requests.get(url, headers=HEADERS, timeout=6)
-        if res.status_code == 200:
-            data = res.json().get("data", {})
-            items = data.get("items", []) or data.get("list", [])
-            if items:
-                return items[0]
+        res = SESSION.get(url, headers=HEADERS, timeout=8)
+        
+        # Check if we were blocked
+        if res.status_code != 200:
+             print(f"API Blocked for {handle} (Status: {res.status_code})", flush=True)
+             return None
+
+        data = res.json().get("data", {})
+        items = data.get("items", []) or data.get("list", [])
+        if items:
+            return items[0]
         else:
-            # Fallback query attempt
-            alt_url = f"https://www.binance.com/bapi/composite/v1/public/pgc/feed/query?searchKey={handle}&page=1&pageSize=1"
-            res_alt = requests.get(alt_url, headers=HEADERS, timeout=6)
-            if res_alt.status_code == 200:
-                items = res_alt.json().get("data", {}).get("items", [])
-                if items:
-                    return items[0]
+             print(f"Fetch successful for {handle} but no items found.", flush=True)
+
     except Exception as e:
-        print(f"Error fetching {handle}: {e}", flush=True)
+        print(f"Connection Error fetching {handle}: {e}", flush=True)
     return None
 
 def send_alert(post, handle):
@@ -95,13 +106,13 @@ def send_alert(post, handle):
     }
     
     try:
-        r = requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json=payload, timeout=6)
-        print(f"Telegram response: {r.status_code} - {r.text}", flush=True)
+        r = requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json=payload, timeout=8)
+        print(f"Telegram response: {r.status_code}", flush=True)
     except Exception as e:
         print(f"Failed to send to Telegram: {e}", flush=True)
 
 def bot_loop():
-    print("🚀 Initializing Red Packet Watcher...", flush=True)
+    print(f"🚀 Initializing Watcher (GUID: {B_GUID})...", flush=True)
     seen = {}
 
     for c in CREATORS:
@@ -110,10 +121,10 @@ def bot_loop():
         if p:
             pid = str(p.get("id") or p.get("feedId"))
             seen[handle] = pid
-            print(f"Indexed {handle} -> Last Post ID: {pid}", flush=True)
+            print(f"✅ Indexed {handle} -> Last Post ID: {pid}", flush=True)
         else:
-            print(f"Could not reach {handle} on initial pass.", flush=True)
-        time.sleep(0.2)
+            print(f"⚠️ Initial fetch failed for {handle}. Will retry.", flush=True)
+        time.sleep(1.0) # Slow initial pass to not trigger DDoS
 
     print("✅ Initialization complete. Watching live...", flush=True)
 
@@ -129,9 +140,9 @@ def bot_loop():
                     print(f"🔥 NEW POST DETECTED: {handle} (ID: {pid})", flush=True)
                     send_alert(post, handle)
                     seen[handle] = pid
-            time.sleep(0.3)
+            time.sleep(0.5) # Time between each of the 10 checks
 
-        time.sleep(2)
+        time.sleep(2) # Scans every 2 seconds
 
 if __name__ == "__main__":
     threading.Thread(target=run_health_server, daemon=True).start()
