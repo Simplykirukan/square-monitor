@@ -1,6 +1,10 @@
 name: Binance Square Auto-Sync
 
 on:
+  push:
+    branches:
+      - main
+      - master
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
