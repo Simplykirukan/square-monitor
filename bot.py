@@ -9,26 +9,25 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 PORT = int(os.getenv("PORT", 10000))
 
-# Your verified Binance account UID
-MY_UID = "1195199098"
+# Test Handle
 MY_HANDLE = "SaMnAtIoN00"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
     "Origin": "https://www.binance.com",
-    "Referer": "https://www.binance.com/en/square",
+    "Referer": f"https://www.binance.com/en/square/profile/{MY_HANDLE}",
     "clienttype": "web",
     "lang": "en"
 }
 
-# Web server for Render health checks
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
         self.end_headers()
-        self.wfile.write(b"Bot is active and polling UID!")
+        self.wfile.write(b"Bot is active and polling!")
 
     def do_HEAD(self):
         self.send_response(200)
@@ -57,8 +56,8 @@ def send_telegram(text):
         print(f"❌ TG Send Error: {e}", flush=True)
 
 def fetch_latest_post():
-    # Direct numeric authorId query targeting UID 1195199098
-    url = f"https://www.binance.com/bapi/composite/v1/public/pgc/feed/user/query?authorId={MY_UID}&page=1&pageSize=1"
+    # Primary API: Query user profile posts by username handle
+    url = f"https://www.binance.com/bapi/composite/v1/public/pgc/feed/user/query?username={MY_HANDLE}&page=1&pageSize=1"
     try:
         res = requests.get(url, headers=HEADERS, timeout=6)
         if res.status_code == 200:
@@ -70,7 +69,29 @@ def fetch_latest_post():
                 body = post.get("body") or post.get("title") or post.get("content") or ""
                 return {"id": pid, "body": body}
     except Exception as e:
-        print(f"Fetch error: {e}", flush=True)
+        print(f"Feed query error: {e}", flush=True)
+
+    # Fallback API: Search endpoint by handle
+    search_url = "https://www.binance.com/bapi/composite/v1/public/pgc/search/content"
+    search_payload = {
+        "keyword": MY_HANDLE,
+        "type": "USER_CONTENT",
+        "pageIndex": 1,
+        "pageSize": 2
+    }
+    try:
+        res = requests.post(search_url, json=search_payload, headers=HEADERS, timeout=6)
+        if res.status_code == 200:
+            data = res.json().get("data", {})
+            items = data.get("list", []) or data.get("items", [])
+            if items:
+                post = items[0]
+                pid = str(post.get("id") or post.get("feedId") or post.get("postId"))
+                body = post.get("body") or post.get("title") or post.get("content") or ""
+                return {"id": pid, "body": body}
+    except Exception as e:
+        print(f"Search query error: {e}", flush=True)
+
     return None
 
 def send_alert(post):
@@ -91,8 +112,8 @@ def send_alert(post):
     send_telegram(message)
 
 def bot_loop():
-    print("🚀 Initializing Single UID Scanner...", flush=True)
-    send_telegram("🧪 <b>UID Scanner Online. Monitoring UID: 1195199098!</b>")
+    print("🚀 Initializing Live Scanner...", flush=True)
+    send_telegram("🧪 <b>Live Scanner Started. Polling SaMnAtIoN00 posts!</b>")
 
     last_post = fetch_latest_post()
     last_id = last_post["id"] if last_post else "0"
