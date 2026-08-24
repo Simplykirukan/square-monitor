@@ -6,20 +6,50 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const PORT = Number(process.env.PORT || 10000);
 
 const CREATORS = [
-  "SaMnAtIoN00",
-  "Square-Creator-1df1e693e2192",
-  "Acqua_DY",
-  "Square-Creator-5dd415213",
-  "xiaoxiong",
-  "sanmageshuai",
-  "Square-Creator-4d698fecefd05",
-  "susea",
-  "Square-Creator-19579394c90dc",
-  "Chungorcrypto"
+  {
+    name: "SaMnAtIoN00",
+    url: "https://app.binance.com/uni-qr/cpro/SaMnAtIoN00?l=en&r=K24ZYWQM&uc=app_square_share_link&us=telegram"
+  },
+  {
+    name: "Square-Creator-1df1e693e2192",
+    url: "https://app.binance.com/uni-qr/cpro/Square-Creator-1df1e693e2192?l=en&r=K24ZYWQM&uc=app_square_share_link&us=telegram"
+  },
+  {
+    name: "Acqua_DY",
+    url: "https://app.binance.com/uni-qr/cpro/Acqua_DY?l=en&r=M4BDZ6KL&uc=app_square_share_link&us=telegram"
+  },
+  {
+    name: "Square-Creator-5dd415213",
+    url: "https://app.binance.com/uni-qr/cpro/Square-Creator-5dd415213?l=en&r=BM3RTM2G&uc=web_square_share_link&us=copylink"
+  },
+  {
+    name: "xiaoxiong",
+    url: "https://app.binance.com/uni-qr/cpro/xiaoxiong?l=en&r=OVAOU1IB&uc=app_square_share_link&us=copylink"
+  },
+  {
+    name: "sanmageshuai",
+    url: "https://app.binance.com/uni-qr/cpro/sanmageshuai?l=en&r=SDR9QGU2&uc=app_square_share_link&us=copylink"
+  },
+  {
+    name: "Square-Creator-4d698fecefd05",
+    url: "https://app.binance.com/uni-qr/cpro/Square-Creator-4d698fecefd05?l=en&r=ELIAA7DF&uc=app_square_share_link&us=copylink"
+  },
+  {
+    name: "susea",
+    url: "https://app.binance.com/uni-qr/cpro/susea?l=en&r=CXOE1FC0&uc=app_square_share_link&us=copylink"
+  },
+  {
+    name: "Square-Creator-19579394c90dc",
+    url: "https://app.binance.com/uni-qr/cpro/Square-Creator-19579394c90dc?l=en&r=SW55NRP9&uc=app_square_share_link&us=copylink"
+  },
+  {
+    name: "Chungorcrypto",
+    url: "https://app.binance.com/uni-qr/cpro/Chungorcrypto?l=en&r=V3PR8MCA&uc=app_square_share_link&us=copylink"
+  }
 ];
 
 const CHECK_INTERVAL = 30000;
-const RENDER_WAIT = 8000;
+const WAIT_AFTER_LOAD = 10000;
 
 const lastSeen = new Map();
 
@@ -49,19 +79,23 @@ server.listen(PORT, "0.0.0.0", () => {
 // ==========================================
 
 async function sendTelegram(text) {
+
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
     console.log("❌ Telegram variables missing");
     return false;
   }
 
   try {
+
     const response = await fetch(
       `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
       {
         method: "POST",
+
         headers: {
           "Content-Type": "application/json"
         },
+
         body: JSON.stringify({
           chat_id: TELEGRAM_CHAT_ID,
           text: text,
@@ -81,9 +115,11 @@ async function sendTelegram(text) {
     }
 
     console.log("✅ Telegram message sent");
+
     return true;
 
   } catch (error) {
+
     console.log(
       "❌ Telegram error:",
       error.message
@@ -99,6 +135,7 @@ async function sendTelegram(text) {
 // ==========================================
 
 function escapeHtml(text) {
+
   return String(text || "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -108,115 +145,257 @@ function escapeHtml(text) {
 
 
 // ==========================================
-// FIND POSTS ON PROFILE
+// CHECK ONE PROFILE
 // ==========================================
 
-async function getLatestPost(handle) {
+async function checkCreator(creator) {
 
   const page = await context.newPage();
 
   try {
 
-    const profileUrl =
-      `https://www.binance.com/en/square/profile/${handle}`;
-
     console.log("");
-    console.log(`🔎 Checking ${handle}`);
-    console.log(`🌐 ${profileUrl}`);
-
-    await page.goto(profileUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: 45000
-    });
-
     console.log(
-      `⏳ Waiting ${RENDER_WAIT / 1000}s for Binance Square...`
+      "=========================================="
     );
 
-    await page.waitForTimeout(RENDER_WAIT);
+    console.log(
+      `🔎 Checking ${creator.name}`
+    );
+
+    console.log(
+      `🌐 ${creator.url}`
+    );
 
 
-    // Scroll down slightly to force the Posts section
-    // to render if it is lazy-loaded.
-    await page.evaluate(() => {
-      window.scrollTo(0, 700);
-    });
+    const response = await page.goto(
+      creator.url,
+      {
+        waitUntil: "domcontentloaded",
+        timeout: 60000
+      }
+    );
 
-    await page.waitForTimeout(3000);
 
+    if (response) {
 
-    const result = await page.evaluate(() => {
-
-      const links = Array.from(
-        document.querySelectorAll("a[href]")
+      console.log(
+        `📡 Initial HTTP status: ${response.status()}`
       );
 
-      const postLinks = links
-        .map(link => ({
-          href: link.href,
-          text: link.innerText || "",
-          aria: link.getAttribute("aria-label") || ""
-        }))
-        .filter(item =>
-          /\/square\/post\//i.test(item.href)
+    } else {
+
+      console.log(
+        "⚠️ No initial response object"
+      );
+    }
+
+
+    console.log(
+      `⏳ Waiting ${WAIT_AFTER_LOAD / 1000}s...`
+    );
+
+
+    await page.waitForTimeout(
+      WAIT_AFTER_LOAD
+    );
+
+
+    // Scroll several times.
+    // Binance Square can lazy-load content.
+
+    for (let i = 0; i < 3; i++) {
+
+      await page.evaluate(() => {
+        window.scrollBy(
+          0,
+          window.innerHeight
+        );
+      });
+
+      await page.waitForTimeout(2000);
+    }
+
+
+    // --------------------------------------
+    // COLLECT PAGE INFORMATION
+    // --------------------------------------
+
+    const info =
+      await page.evaluate(() => {
+
+        const links =
+          Array.from(
+            document.querySelectorAll("a[href]")
+          );
+
+
+        const allLinks =
+          links.map(
+            a => ({
+              href: a.href,
+              text: (a.innerText || "").trim()
+            })
+          );
+
+
+        const postLinks =
+          allLinks.filter(
+            item =>
+              /\/square\/post\//i.test(
+                item.href
+              )
+          );
+
+
+        const appPostLinks =
+          allLinks.filter(
+            item =>
+              /app\.binance\.com\/uni-qr\/cpo/i.test(
+                item.href
+              )
+          );
+
+
+        const body =
+          document.body
+            ? document.body.innerText || ""
+            : "";
+
+
+        return {
+
+          title:
+            document.title || "",
+
+          url:
+            window.location.href,
+
+          postLinks:
+            postLinks.slice(0, 20),
+
+          appPostLinks:
+            appPostLinks.slice(0, 20),
+
+          totalLinks:
+            allLinks.length,
+
+          bodyText:
+            body.substring(0, 4000)
+        };
+
+      });
+
+
+    console.log(
+      `📄 TITLE: ${info.title}`
+    );
+
+    console.log(
+      `📍 FINAL URL: ${info.url}`
+    );
+
+    console.log(
+      `🔗 TOTAL LINKS: ${info.totalLinks}`
+    );
+
+    console.log(
+      `📝 /square/post/ LINKS: ${info.postLinks.length}`
+    );
+
+    console.log(
+      `📱 APP POST LINKS: ${info.appPostLinks.length}`
+    );
+
+
+    // --------------------------------------
+    // SHOW PAGE TEXT
+    // --------------------------------------
+
+    console.log(
+      "📝 PAGE TEXT PREVIEW:"
+    );
+
+    console.log(
+      info.bodyText.substring(0, 1000)
+    );
+
+
+    // --------------------------------------
+    // SHOW FOUND POST LINKS
+    // --------------------------------------
+
+    if (info.postLinks.length > 0) {
+
+      console.log(
+        "🎯 FOUND SQUARE POSTS:"
+      );
+
+      for (
+        const post of info.postLinks
+      ) {
+
+        console.log(
+          `➡️ ${post.href}`
         );
 
-
-      // Remove duplicates.
-      const unique = [];
-
-      const seen = new Set();
-
-      for (const item of postLinks) {
-
-        if (!seen.has(item.href)) {
-          seen.add(item.href);
-          unique.push(item);
-        }
       }
 
-
-      return {
-        postLinks: unique.slice(0, 10),
-        title: document.title,
-        url: window.location.href,
-        bodyText: document.body.innerText.substring(0, 2000)
-      };
-    });
-
-
-    console.log(
-      `📄 Page title: ${result.title}`
-    );
-
-    console.log(
-      `🔗 Post links found: ${result.postLinks.length}`
-    );
-
-
-    if (!result.postLinks.length) {
+    } else {
 
       console.log(
-        `⚠️ ${handle}: no post links found after rendering`
+        "⚠️ NO /square/post/ LINKS FOUND"
       );
 
-      console.log(
-        `📄 Page URL: ${result.url}`
-      );
+    }
+
+
+    // --------------------------------------
+    // TAKE SCREENSHOT
+    // --------------------------------------
+
+    try {
+
+      const safeName =
+        creator.name.replace(
+          /[^a-zA-Z0-9_-]/g,
+          "_"
+        );
+
+      await page.screenshot({
+        path: `/tmp/${safeName}.png`,
+        fullPage: false
+      });
 
       console.log(
-        `📝 Page text preview:`
+        `📸 Screenshot captured: ${safeName}.png`
       );
 
+    } catch (error) {
+
       console.log(
-        result.bodyText.substring(0, 500)
+        `⚠️ Screenshot failed: ${error.message}`
+      );
+
+    }
+
+
+    // --------------------------------------
+    // CURRENT RESULT
+    // --------------------------------------
+
+    if (info.postLinks.length === 0) {
+
+      console.log(
+        `⚠️ ${creator.name}: no post links detected`
       );
 
       return null;
     }
 
 
-    const newest = result.postLinks[0];
+    const newest =
+      info.postLinks[0];
 
 
     const match =
@@ -228,56 +407,33 @@ async function getLatestPost(handle) {
     if (!match) {
 
       console.log(
-        `⚠️ ${handle}: couldn't extract post ID`
+        "⚠️ Post ID extraction failed"
       );
 
       return null;
     }
 
 
-    const postId = match[1];
+    const postId =
+      match[1];
 
 
-    // Open the actual post so we can get
-    // the full visible text.
-    const postPage =
-      await context.newPage();
-
-    try {
-
-      await postPage.goto(
-        newest.href,
-        {
-          waitUntil: "domcontentloaded",
-          timeout: 45000
-        }
-      );
-
-      await postPage.waitForTimeout(5000);
+    console.log(
+      `🎯 LATEST POST ID: ${postId}`
+    );
 
 
-      const postText =
-        await postPage.evaluate(() => {
+    return {
+      id: postId,
+      url: newest.href,
+      text: newest.text
+    };
 
-          return document.body.innerText || "";
-        });
-
-
-      return {
-        id: postId,
-        url: newest.href,
-        text: postText.substring(0, 5000)
-      };
-
-    } finally {
-
-      await postPage.close();
-    }
 
   } catch (error) {
 
     console.log(
-      `❌ ${handle}: ${error.message}`
+      `❌ ${creator.name}: ${error.message}`
     );
 
     return null;
@@ -293,10 +449,10 @@ async function getLatestPost(handle) {
 // PROCESS CREATOR
 // ==========================================
 
-async function processCreator(handle) {
+async function processCreator(creator) {
 
   const post =
-    await getLatestPost(handle);
+    await checkCreator(creator);
 
 
   if (!post) {
@@ -304,56 +460,60 @@ async function processCreator(handle) {
   }
 
 
-  console.log(
-    `📌 ${handle}: latest post ID ${post.id}`
-  );
+  const previous =
+    lastSeen.get(
+      creator.name
+    );
 
 
-  // First time seeing this creator.
-  // Register the post without sending it.
-  if (!lastSeen.has(handle)) {
+  // First scan.
+  if (!previous) {
 
     lastSeen.set(
-      handle,
+      creator.name,
       post.id
     );
 
     console.log(
-      `🟢 ${handle}: initial post registered`
+      `🟢 ${creator.name}: registered ${post.id}`
     );
 
     return;
   }
 
 
-  const previousId =
-    lastSeen.get(handle);
-
-
-  if (previousId === post.id) {
+  if (previous === post.id) {
 
     console.log(
-      `✓ ${handle}: no new post`
+      `✓ ${creator.name}: no new post`
     );
 
     return;
   }
 
+
+  // --------------------------------------
+  // NEW POST
+  // --------------------------------------
 
   console.log("");
   console.log(
-    `🔥🔥🔥 NEW POST FROM ${handle} 🔥🔥🔥`
+    "🔥🔥🔥 NEW POST DETECTED 🔥🔥🔥"
+  );
+
+  console.log(
+    `👤 Creator: ${creator.name}`
+  );
+
+  console.log(
+    `🆔 Post: ${post.id}`
   );
 
 
   lastSeen.set(
-    handle,
+    creator.name,
     post.id
   );
-
-
-  const lowerText =
-    post.text.toLowerCase();
 
 
   const packetWords = [
@@ -369,10 +529,14 @@ async function processCreator(handle) {
   ];
 
 
+  const lower =
+    (post.text || "").toLowerCase();
+
+
   const isPacket =
     packetWords.some(
       word =>
-        lowerText.includes(word)
+        lower.includes(word)
     );
 
 
@@ -382,30 +546,30 @@ async function processCreator(handle) {
       : "📢 <b>NEW BINANCE SQUARE POST</b>";
 
 
-  const messageText =
-    post.text.trim().substring(0, 3000);
-
-
   const message =
     `${title}\n\n` +
-    `👤 <b>${escapeHtml(handle)}</b>\n\n` +
-    `${escapeHtml(messageText)}\n\n` +
+    `👤 <b>${escapeHtml(creator.name)}</b>\n\n` +
+    `${escapeHtml(
+      (post.text || "").substring(0, 3000)
+    )}\n\n` +
     `⚡ <a href="${post.url}">OPEN IN BINANCE</a>`;
 
 
-  await sendTelegram(message);
+  await sendTelegram(
+    message
+  );
 }
 
 
 // ==========================================
-// CHECK ALL CREATORS
+// CHECK ALL 10
 // ==========================================
 
 async function checkAllCreators() {
 
   console.log("");
   console.log(
-    "=============================================="
+    "=========================================="
   );
 
   console.log(
@@ -413,21 +577,25 @@ async function checkAllCreators() {
   );
 
   console.log(
-    "=============================================="
+    "=========================================="
   );
 
 
-  for (const creator of CREATORS) {
+  for (
+    const creator of CREATORS
+  ) {
 
     await processCreator(
       creator
     );
 
 
-    // Small delay between creators.
     await new Promise(
       resolve =>
-        setTimeout(resolve, 1500)
+        setTimeout(
+          resolve,
+          1500
+        )
     );
   }
 }
@@ -441,19 +609,19 @@ async function startMonitor() {
 
   console.log("");
   console.log(
-    "=============================================="
+    "=========================================="
   );
 
   console.log(
-    "      BINANCE SQUARE → TELEGRAM"
+    "   BINANCE SQUARE → TELEGRAM"
   );
 
   console.log(
-    "         10 CREATOR MONITOR"
+    "   10 CREATOR APP PROFILE MONITOR"
   );
 
   console.log(
-    "=============================================="
+    "=========================================="
   );
 
 
@@ -461,14 +629,15 @@ async function startMonitor() {
     (creator, index) => {
 
       console.log(
-        `${index + 1}. ${creator}`
+        `${index + 1}. ${creator.name}`
       );
+
     }
   );
 
 
   console.log(
-    "=============================================="
+    "=========================================="
   );
 
 
@@ -483,6 +652,7 @@ async function startMonitor() {
         "--disable-dev-shm-usage",
         "--disable-gpu"
       ]
+
     });
 
 
@@ -496,10 +666,13 @@ async function startMonitor() {
 
       locale: "en-US",
 
+      timezoneId: "Asia/Kolkata",
+
       userAgent:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
         "AppleWebKit/537.36 (KHTML, like Gecko) " +
         "Chrome/124.0.0.0 Safari/537.36"
+
     });
 
 
@@ -508,17 +681,12 @@ async function startMonitor() {
   );
 
 
-  console.log(
-    "🔍 Starting first scan..."
-  );
-
-
   await checkAllCreators();
 
 
   console.log("");
   console.log(
-    "=============================================="
+    "=========================================="
   );
 
   console.log(
@@ -526,14 +694,13 @@ async function startMonitor() {
   );
 
   console.log(
-    "=============================================="
+    "=========================================="
   );
 
 
   await sendTelegram(
     "🟢 <b>Binance Square Monitor Online</b>\n\n" +
-    "Monitoring <b>10 creators</b>.\n" +
-    "New posts will be sent automatically."
+    "10 creator profiles are being monitored."
   );
 
 
@@ -550,7 +717,7 @@ async function startMonitor() {
 
     console.log("");
     console.log(
-      "🔄 Running next scan..."
+      "🔄 RUNNING NEXT SCAN..."
     );
 
 
@@ -570,17 +737,18 @@ async function shutdown() {
   );
 
 
-  if (browser) {
+  try {
 
-    try {
+    if (browser) {
       await browser.close();
-    } catch {}
-  }
+    }
+
+  } catch {}
 
 
-  server.close(() => {
-    process.exit(0);
-  });
+  server.close(
+    () => process.exit(0)
+  );
 }
 
 
