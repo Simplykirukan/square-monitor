@@ -26,12 +26,21 @@ HEADERS = {
     "Accept": "application/json"
 }
 
-# Web server for Render health check
+# Web server for Render health checks (handles both GET and HEAD)
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
+        self.send_header("Content-type", "text/plain")
         self.end_headers()
         self.wfile.write(b"Bot is running live!")
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+
+    def log_message(self, format, *args):
+        return  # Suppress health check spam in logs
 
 def run_health_server():
     server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
@@ -55,10 +64,8 @@ def send_alert(post, handle):
     author = post.get("authorName") or handle
     post_url = f"https://www.binance.com/en/square/post/{post_id}"
 
-    # Highlight Red Packet keywords
     keywords = ["packet", "code", "box", "crypto box", "bp", "claim", "red", "🧧"]
     is_red_packet = any(k in body.lower() for k in keywords)
-    
     alert_tag = "🧧 <b>RED PACKET ALERT!</b>\n\n" if is_red_packet else "📢 <b>New Square Post</b>\n\n"
 
     message = (
@@ -100,11 +107,9 @@ def bot_loop():
                     seen[handle] = pid
             time.sleep(0.3)
 
-        time.sleep(2)  # Scans every 2 seconds
+        time.sleep(2)
 
 if __name__ == "__main__":
-    # Start web server thread for Render
     threading.Thread(target=run_health_server, daemon=True).start()
-    # Start live bot scanner
     bot_loop()
     
