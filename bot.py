@@ -1,7 +1,5 @@
 import os
 import sys
-import re
-import json
 import time
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -14,18 +12,16 @@ PORT = int(os.getenv("PORT", 10000))
 # Test Handle
 MY_HANDLE = "SaMnAtIoN00"
 
+SESSION = requests.Session()
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    "Accept": "*/*",
     "Accept-Language": "en-US,en;q=0.9",
-    "Sec-Ch-Ua": '"Not-A.Brand";v="99", "Chromium";v="124"',
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": '"Windows"',
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1",
-    "Upgrade-Insecure-Requests": "1"
+    "Origin": "https://www.binance.com",
+    "Referer": "https://www.binance.com/en/square",
+    "Client-Type": "web",
+    "Lang": "en",
+    "Content-Type": "application/json"
 }
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -33,7 +29,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
         self.end_headers()
-        self.wfile.write(b"Bot Active")
+        self.wfile.write(b"Bot is active and running!")
 
     def do_HEAD(self):
         self.send_response(200)
@@ -62,33 +58,46 @@ def send_telegram(text):
         print(f"❌ TG Error: {e}", flush=True)
 
 def fetch_latest_post():
-    url = f"https://www.binance.com/en/square/profile/{MY_HANDLE}"
+    # Binance Square Feed Query via Mobile Public Gateway
+    url = "https://www.binance.com/bapi/composite/v1/friendly/pgc/feed/user/page"
+    payload = {
+        "username": MY_HANDLE,
+        "pageIndex": 1,
+        "pageSize": 1
+    }
     try:
-        res = requests.get(url, headers=HEADERS, timeout=8)
-        print(f"[DEBUG] Profile Page HTTP Status: {res.status_code}", flush=True)
+        res = SESSION.post(url, json=payload, headers=HEADERS, timeout=6)
+        print(f"[DEBUG] Gateway HTTP Status: {res.status_code}", flush=True)
 
         if res.status_code == 200:
-            html = res.text
-            # Method A: Extract Next.js embedded JSON data
-            match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html)
-            if match:
-                data = json.loads(match.group(1))
-                page_props = data.get("props", {}).get("pageProps", {})
-                feed_list = page_props.get("feedList", []) or page_props.get("list", []) or page_props.get("items", [])
-                if feed_list:
-                    p = feed_list[0]
-                    pid = str(p.get("id") or p.get("postId") or p.get("feedId"))
-                    body = p.get("body") or p.get("title") or p.get("content") or ""
-                    return {"id": pid, "body": body}
-
-            # Method B: Regex search for any post ID URL in HTML
-            post_links = re.findall(r'/square/post/(\d+)', html)
-            if post_links:
-                pid = post_links[0]
-                return {"id": pid, "body": f"Post detected on {MY_HANDLE} profile."}
-
+            res_json = res.json()
+            data = res_json.get("data", {})
+            items = data.get("items", []) or data.get("list", [])
+            if items:
+                post = items[0]
+                pid = str(post.get("id") or post.get("feedId") or post.get("postId"))
+                body = post.get("body") or post.get("title") or post.get("content") or ""
+                return {"id": pid, "body": body}
+            else:
+                # If username parameter did not match, attempt with creator handle query
+                pass
     except Exception as e:
-        print(f"[DEBUG] Fetch exception: {e}", flush=True)
+        print(f"[DEBUG] Gateway Error: {e}", flush=True)
+
+    # Fallback Direct Search Endpoint
+    alt_url = "https://www.binance.com/bapi/composite/v1/public/pgc/feed/query"
+    alt_payload = {"searchKey": MY_HANDLE, "page": 1, "pageSize": 1}
+    try:
+        res2 = SESSION.post(alt_url, json=alt_payload, headers=HEADERS, timeout=6)
+        if res2.status_code == 200:
+            items = res2.json().get("data", {}).get("items", [])
+            if items:
+                p = items[0]
+                pid = str(p.get("id") or p.get("feedId") or p.get("postId"))
+                body = p.get("body") or p.get("title") or ""
+                return {"id": pid, "body": body}
+    except Exception:
+        pass
 
     return None
 
@@ -110,8 +119,8 @@ def send_alert(post):
     send_telegram(message)
 
 def bot_loop():
-    print("🚀 Initializing HTML Next.js Watcher...", flush=True)
-    send_telegram(f"🔍 <b>Profile Watcher Starting for: {MY_HANDLE}</b>")
+    print("🚀 Initializing Live API Gateway...", flush=True)
+    send_telegram(f"🔍 <b>Live Scanner Online for: {MY_HANDLE}</b>")
 
     last_post = fetch_latest_post()
     last_id = last_post["id"] if last_post else "0"
@@ -126,10 +135,11 @@ def bot_loop():
                 send_alert(post)
                 last_id = pid
             elif last_id == "0":
-                print(f"🎯 First post registered -> ID: {pid}", flush=True)
+                print(f"🎯 Post ID Registered: {pid}", flush=True)
                 last_id = pid
-        time.sleep(2)
+        time.sleep(1.5)
 
 if __name__ == "__main__":
     threading.Thread(target=run_health_server, daemon=True).start()
     bot_loop()
+                
