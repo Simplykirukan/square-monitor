@@ -3,11 +3,9 @@ import json
 import time
 import requests
 
-# ----------------- CONFIGURATION -----------------
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# Pre-configured list of your 10 creators
 CREATORS = [
     {"handle": "Square-Creator-1df1e693e2192"},
     {"handle": "Acqua_DY"},
@@ -18,56 +16,40 @@ CREATORS = [
     {"handle": "susea"},
     {"handle": "Square-Creator-19579394c90dc"},
     {"handle": "Chungorcrypto"},
-    {"handle": "SaMnAtIoN"}, # Test Account
+    {"handle": "SaMnAtIoN"},
 ]
 
-STATE_FILE = "seen_posts.json"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
     "Accept": "application/json"
 }
 
-def load_state():
-    if os.path.exists(STATE_FILE):
-        try:
-            with open(STATE_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
-
-def save_state(state):
-    with open(STATE_FILE, "w") as f:
-        json.dump(state, f, indent=2)
-
-def fetch_creator_feed(handle):
-    # Query feed via Binance Square handle query
+def fetch_latest_post(handle):
     url = f"https://www.binance.com/bapi/composite/v1/public/pgc/feed/user/query?handle={handle}&page=1&pageSize=1"
     try:
-        res = requests.get(url, headers=HEADERS, timeout=12)
+        res = requests.get(url, headers=HEADERS, timeout=5)
         if res.status_code == 200:
-            data = res.json().get("data", {})
-            items = data.get("items", [])
+            items = res.json().get("data", {}).get("items", [])
             if items:
                 return items[0]
-    except Exception as e:
-        print(f"Error fetching feed for {handle}: {e}")
+    except Exception:
+        pass
     return None
 
-def send_telegram_post(post, handle):
+def send_alert(post, handle):
     post_id = post.get("id")
     body = post.get("body", "") or post.get("title", "")
-    author_name = post.get("authorName") or handle
-    
-    # Telegram message character limit protection
-    if len(body) > 3500:
-        body = body[:3500] + "..."
-
+    author = post.get("authorName") or handle
     post_url = f"https://www.binance.com/en/square/post/{post_id}"
+
+    # Highlight if Red Packet keywords are detected
+    alert_tag = "🧧 <b>RED PACKET ALERT!</b>\n\n" if any(w in body.lower() for w in ["packet", "code", "box", "crypto box", "bp", "claim", "red"]) else "📢 <b>New Square Post</b>\n\n"
+
     message = (
-        f"✍️ <b>{author_name} on Binance Square</b>\n\n"
-        f"{body}\n\n"
-        f"🔗 <a href='{post_url}'>View on Binance Square</a>"
+        f"{alert_tag}"
+        f"👤 <b>{author}</b>\n\n"
+        f"{body[:2500]}\n\n"
+        f"⚡ <a href='{post_url}'>OPEN IN BINANCE NOW</a>"
     )
 
     payload = {
@@ -76,45 +58,34 @@ def send_telegram_post(post, handle):
         "parse_mode": "HTML",
         "disable_web_page_preview": False
     }
-    
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-            json=payload,
-            timeout=10
-        )
-    except Exception as e:
-        print(f"Telegram send error: {e}")
+    requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json=payload, timeout=5)
 
-def run():
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID secret.")
-        return
+def main():
+    print("🚀 Real-Time Red Packet Bot Started...")
+    seen = {}
 
-    state = load_state()
+    # Initialize current latest posts
+    for c in CREATORS:
+        p = fetch_latest_post(c["handle"])
+        if p:
+            seen[c["handle"]] = str(p.get("id"))
+    print("Tracking initialized. Watching live...")
 
-    for item in CREATORS:
-        handle = item["handle"]
-        post = fetch_creator_feed(handle)
-        
-        if not post:
-            continue
+    while True:
+        for c in CREATORS:
+            handle = c["handle"]
+            post = fetch_latest_post(handle)
+            if post:
+                pid = str(post.get("id"))
+                if handle not in seen:
+                    seen[handle] = pid
+                elif pid != seen[handle]:
+                    print(f"🔥 NEW POST DETECTED: {handle}")
+                    send_alert(post, handle)
+                    seen[handle] = pid
+            time.sleep(0.3)  # Small delay between creators to prevent rate-limiting
 
-        post_id = str(post.get("id"))
-        last_id = state.get(handle)
-
-        if last_id is None:
-            # First initialization: save latest post so it won't post old history
-            state[handle] = post_id
-            print(f"Initialized {handle} at post: {post_id}")
-        elif post_id != last_id:
-            # New post detected
-            send_telegram_post(post, handle)
-            state[handle] = post_id
-            print(f"Forwarded new post from {handle}: {post_id}")
-            time.sleep(1)
-
-    save_state(state)
+        time.sleep(2)  # Check all 10 creators every 2 seconds
 
 if __name__ == "__main__":
-    run()
+    main()
