@@ -1,7 +1,9 @@
 const { chromium } = require("playwright");
+const http = require("http");
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const PORT = Number(process.env.PORT || 10000);
 
 const CREATORS = [
   "SaMnAtIoN00",
@@ -18,28 +20,95 @@ const CREATORS = [
 
 const CHECK_INTERVAL = 15000;
 
-let browser;
-let context;
+const HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+    "AppleWebKit/537.36 (KHTML, like Gecko) " +
+    "Chrome/124.0.0.0 Safari/537.36",
+
+  "Accept":
+    "application/json, text/plain, */*",
+
+  "Accept-Language":
+    "en-US,en;q=0.9",
+
+  "Origin":
+    "https://www.binance.com",
+
+  "Referer":
+    "https://www.binance.com/en/square",
+
+  "clienttype":
+    "web",
+
+  "lang":
+    "en",
+
+  "Content-Type":
+    "application/json"
+};
 
 const lastSeen = new Map();
 
+let browser = null;
+let page = null;
+
+
+// ==========================================
+// RENDER HEALTH SERVER
+// ==========================================
+
+const server = http.createServer((req, res) => {
+  res.writeHead(200, {
+    "Content-Type": "text/plain"
+  });
+
+  res.end(
+    "Binance Square Telegram Monitor is running"
+  );
+});
+
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(
+    `🌐 Health server listening on port ${PORT}`
+  );
+});
+
+
+// ==========================================
+// TELEGRAM
+// ==========================================
+
 async function sendTelegram(text) {
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-    console.log("❌ Telegram environment variables are missing");
+
+  if (!TELEGRAM_BOT_TOKEN) {
+    console.log(
+      "❌ TELEGRAM_BOT_TOKEN is missing"
+    );
+    return false;
+  }
+
+  if (!TELEGRAM_CHAT_ID) {
+    console.log(
+      "❌ TELEGRAM_CHAT_ID is missing"
+    );
     return false;
   }
 
   try {
+
     const response = await fetch(
       `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
       {
         method: "POST",
+
         headers: {
           "Content-Type": "application/json"
         },
+
         body: JSON.stringify({
           chat_id: TELEGRAM_CHAT_ID,
-          text,
+          text: text,
           parse_mode: "HTML",
           disable_web_page_preview: false
         })
@@ -48,21 +117,43 @@ async function sendTelegram(text) {
 
     const result = await response.json();
 
+    console.log(
+      `[TELEGRAM] ${response.status}`
+    );
+
     if (!result.ok) {
-      console.log("❌ Telegram error:", result);
+      console.log(
+        "❌ Telegram error:",
+        result
+      );
+
       return false;
     }
 
-    console.log("✅ Telegram message sent");
+    console.log(
+      "✅ Telegram message sent"
+    );
+
     return true;
 
   } catch (error) {
-    console.log("❌ Telegram request failed:", error.message);
+
+    console.log(
+      "❌ Telegram request error:",
+      error.message
+    );
+
     return false;
   }
 }
 
+
+// ==========================================
+// HTML ESCAPE
+// ==========================================
+
 function escapeHtml(text) {
+
   return String(text || "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -70,216 +161,443 @@ function escapeHtml(text) {
     .replace(/"/g, "&quot;");
 }
 
-async function checkCreator(handle) {
-  const page = await context.newPage();
+
+// ==========================================
+// BINANCE API
+// ==========================================
+
+async function fetchLatestPost(handle) {
+
+  const url =
+    "https://www.binance.com/" +
+    "bapi/composite/v1/public/pgc/feed/author/posts";
+
+  const payload = {
+    handle: handle,
+    pageIndex: 1,
+    pageSize: 5
+  };
 
   try {
-    const url =
-      `https://www.binance.com/en/square/profile/${handle}`;
 
-    console.log(`🔎 Checking ${handle}`);
+    const response = await fetch(
+      url,
+      {
+        method: "POST",
 
-    await page.goto(url, {
-      waitUntil: "domcontentloaded",
-      timeout: 30000
-    });
+        headers: HEADERS,
 
-    await page.waitForTimeout(3000);
-
-    const posts = await page.evaluate(() => {
-      const links = Array.from(
-        document.querySelectorAll("a[href]")
-      );
-
-      return links
-        .map(link => ({
-          href: link.href,
-          text: link.innerText || ""
-        }))
-        .filter(item =>
-          item.href.includes("/square/post/")
-        );
-    });
-
-    if (!posts.length) {
-      console.log(`⚠️ ${handle}: no Square posts detected`);
-      return;
-    }
-
-    const newest = posts[0];
-
-    const match = newest.href.match(
-      /\/square\/post\/([^/?#]+)/i
+        body: JSON.stringify(payload)
+      }
     );
-
-    if (!match) {
-      console.log(`⚠️ ${handle}: post ID not found`);
-      return;
-    }
-
-    const postId = match[1];
 
     console.log(
-      `📌 ${handle}: latest post ${postId}`
+      `[${handle}] API Status: ${response.status}`
     );
 
-    if (!lastSeen.has(handle)) {
-      lastSeen.set(handle, postId);
+    if (!response.ok) {
+
+      const errorText =
+        await response.text();
 
       console.log(
-        `🟢 ${handle}: initial post registered`
+        `[${handle}] API response:`,
+        errorText.substring(0, 300)
       );
 
-      return;
+      return [];
     }
 
-    const previousId = lastSeen.get(handle);
+    const json =
+      await response.json();
 
-    if (previousId === postId) {
-      console.log(`✓ ${handle}: no new post`);
-      return;
+    const data =
+      json.data || {};
+
+    const items =
+      data.list ||
+      data.items ||
+      [];
+
+    if (!Array.isArray(items)) {
+      return [];
     }
+
+    const posts = [];
+
+    for (const item of items) {
+
+      if (!item || typeof item !== "object") {
+        continue;
+      }
+
+      const id =
+        item.id ||
+        item.feedId ||
+        item.postId;
+
+      const body =
+        item.body ||
+        item.title ||
+        item.content ||
+        "";
+
+      if (!id) {
+        continue;
+      }
+
+      posts.push({
+        id: String(id),
+        body: String(body)
+      });
+    }
+
+    return posts;
+
+  } catch (error) {
 
     console.log(
-      `🔥 NEW POST DETECTED from ${handle}`
+      `[${handle}] API ERROR:`,
+      error.message
     );
 
-    lastSeen.set(handle, postId);
+    return [];
+  }
+}
 
-    const body = (newest.text || "").trim();
 
-    const lowerBody = body.toLowerCase();
+// ==========================================
+// PROCESS CREATOR
+// ==========================================
 
-    const packetWords = [
-      "packet",
-      "red packet",
-      "crypto box",
-      "box",
-      "claim",
-      "code",
-      "bp",
-      "🧧"
-    ];
+async function processCreator(handle) {
 
-    const isPacket = packetWords.some(
-      word => lowerBody.includes(word)
+  console.log(
+    `🔎 Checking ${handle}`
+  );
+
+  const posts =
+    await fetchLatestPost(handle);
+
+  if (!posts.length) {
+
+    console.log(
+      `⚠️ ${handle}: no posts returned`
     );
 
-    const title = isPacket
+    return;
+  }
+
+  const newest =
+    posts[0];
+
+  const postId =
+    newest.id;
+
+  console.log(
+    `📌 ${handle}: latest post ${postId}`
+  );
+
+
+  // First scan.
+  // Register the current post but DON'T send it.
+  if (!lastSeen.has(handle)) {
+
+    lastSeen.set(
+      handle,
+      postId
+    );
+
+    console.log(
+      `🟢 ${handle}: initial post registered`
+    );
+
+    return;
+  }
+
+
+  const previousId =
+    lastSeen.get(handle);
+
+
+  if (previousId === postId) {
+
+    console.log(
+      `✓ ${handle}: no new post`
+    );
+
+    return;
+  }
+
+
+  // NEW POST
+  console.log(
+    `🔥 NEW POST DETECTED: ${handle}`
+  );
+
+  lastSeen.set(
+    handle,
+    postId
+  );
+
+
+  const body =
+    newest.body || "";
+
+
+  const lowerBody =
+    body.toLowerCase();
+
+
+  const packetKeywords = [
+    "packet",
+    "red packet",
+    "crypto box",
+    "crypto packet",
+    "box",
+    "claim",
+    "code",
+    "bp",
+    "🧧"
+  ];
+
+
+  const isPacket =
+    packetKeywords.some(
+      word =>
+        lowerBody.includes(word)
+    );
+
+
+  const title =
+    isPacket
       ? "🧧 <b>RED PACKET ALERT!</b>"
       : "📢 <b>NEW BINANCE SQUARE POST</b>";
 
-    const safeBody = escapeHtml(
+
+  const postUrl =
+    `https://www.binance.com/en/square/post/${postId}`;
+
+
+  const safeBody =
+    escapeHtml(
       body.substring(0, 3000)
     );
 
-    const message =
-      `${title}\n\n` +
-      `👤 <b>${escapeHtml(handle)}</b>\n\n` +
-      `${safeBody}\n\n` +
-      `⚡ <a href="${newest.href}">OPEN IN BINANCE</a>`;
 
-    await sendTelegram(message);
+  const message =
+    `${title}\n\n` +
+    `👤 <b>${escapeHtml(handle)}</b>\n\n` +
+    `${safeBody}\n\n` +
+    `⚡ <a href="${postUrl}">OPEN IN BINANCE</a>`;
 
-  } catch (error) {
-    console.log(
-      `❌ ${handle}: ${error.message}`
-    );
-  } finally {
-    await page.close();
-  }
+
+  await sendTelegram(
+    message
+  );
 }
+
+
+// ==========================================
+// CHECK ALL 10
+// ==========================================
 
 async function checkAllCreators() {
+
   console.log("");
-  console.log("========================================");
-  console.log("🔄 CHECKING ALL 10 CREATORS");
-  console.log("========================================");
+  console.log(
+    "=========================================="
+  );
+  console.log(
+    "🔄 CHECKING ALL 10 CREATORS"
+  );
+  console.log(
+    "=========================================="
+  );
+
 
   for (const creator of CREATORS) {
-    await checkCreator(creator);
+
+    await processCreator(
+      creator
+    );
 
     await new Promise(
-      resolve => setTimeout(resolve, 1000)
+      resolve =>
+        setTimeout(resolve, 1000)
     );
   }
 }
 
-async function start() {
+
+// ==========================================
+// START
+// ==========================================
+
+async function startMonitor() {
+
   console.log("");
-  console.log("========================================");
-  console.log("BINANCE SQUARE → TELEGRAM");
-  console.log("10 CREATOR MONITOR");
-  console.log("========================================");
+  console.log(
+    "=========================================="
+  );
+  console.log(
+    "     BINANCE SQUARE → TELEGRAM"
+  );
+  console.log(
+    "        10 CREATOR MONITOR"
+  );
+  console.log(
+    "=========================================="
+  );
 
-  CREATORS.forEach((creator, index) => {
+
+  for (
+    let i = 0;
+    i < CREATORS.length;
+    i++
+  ) {
+
     console.log(
-      `${index + 1}. ${creator}`
+      `${i + 1}. ${CREATORS[i]}`
     );
-  });
+  }
 
-  console.log("========================================");
 
-  browser = await chromium.launch({
-    headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage"
-    ]
-  });
+  console.log(
+    "=========================================="
+  );
 
-  context = await browser.newContext({
-    viewport: {
-      width: 1366,
-      height: 900
-    },
 
-    userAgent:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-      "AppleWebKit/537.36 (KHTML, like Gecko) " +
-      "Chrome/124.0.0.0 Safari/537.36"
-  });
+  browser =
+    await chromium.launch({
 
-  console.log("🚀 Playwright started");
+      headless: true,
+
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage"
+      ]
+    });
+
+
+  page =
+    await browser.newPage({
+
+      viewport: {
+        width: 1366,
+        height: 900
+      },
+
+      userAgent:
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+        "AppleWebKit/537.36 (KHTML, like Gecko) " +
+        "Chrome/124.0.0.0 Safari/537.36"
+    });
+
+
+  console.log(
+    "🚀 Playwright started"
+  );
+
+
+  console.log(
+    "🔍 First scan starting..."
+  );
+
 
   await checkAllCreators();
 
-  await sendTelegram(
-    "🟢 <b>Binance Square Monitor Started</b>\n\n" +
-    "Monitoring 10 creators for new posts."
+
+  console.log("");
+  console.log(
+    "=========================================="
+  );
+  console.log(
+    "✅ INITIAL SCAN COMPLETE"
+  );
+  console.log(
+    "=========================================="
   );
 
+
+  await sendTelegram(
+    "🟢 <b>Binance Square Monitor Online</b>\n\n" +
+    "Monitoring <b>10 creators</b>.\n" +
+    "New posts will be sent automatically."
+  );
+
+
   while (true) {
+
     await new Promise(
-      resolve => setTimeout(resolve, CHECK_INTERVAL)
+      resolve =>
+        setTimeout(
+          resolve,
+          CHECK_INTERVAL
+        )
     );
+
+
+    console.log("");
+    console.log(
+      "🔄 Running new-post check..."
+    );
+
 
     await checkAllCreators();
   }
 }
 
-process.on("SIGTERM", async () => {
-  console.log("🛑 SIGTERM received");
+
+// ==========================================
+// SHUTDOWN
+// ==========================================
+
+async function shutdown() {
+
+  console.log(
+    "🛑 Shutting down..."
+  );
+
 
   if (browser) {
-    await browser.close();
+
+    try {
+      await browser.close();
+    } catch {}
   }
 
-  process.exit(0);
-});
 
-process.on("SIGINT", async () => {
-  console.log("🛑 SIGINT received");
+  server.close(() => {
+    process.exit(0);
+  });
+}
 
-  if (browser) {
-    await browser.close();
+
+process.on(
+  "SIGTERM",
+  shutdown
+);
+
+process.on(
+  "SIGINT",
+  shutdown
+);
+
+
+// ==========================================
+// RUN
+// ==========================================
+
+startMonitor().catch(
+  error => {
+
+    console.error(
+      "💥 FATAL ERROR:",
+      error
+    );
+
+    process.exit(1);
   }
-
-  process.exit(0);
-});
-
-start().catch(error => {
-  console.error("💥 FATAL ERROR:", error);
-  process.exit(1);
-});
+);
