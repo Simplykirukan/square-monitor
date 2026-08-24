@@ -1,6 +1,8 @@
 import os
 import sys
+import re
 import time
+import json
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
@@ -19,18 +21,29 @@ CREATORS = [
     {"handle": "susea"},
     {"handle": "Square-Creator-19579394c90dc"},
     {"handle": "Chungorcrypto"},
-    {"handle": "samnation"}, # Test Account
+    {"handle": "SaMnAtIoN"}, # Test Account
 ]
 
-# Health server for Render
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/json,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.binance.com/en/square",
+    "clienttype": "web",
+    "lang": "en"
+}
+
+# Mini web server for Render keep-alive
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
+        self.send_header("Content-type", "text/plain")
         self.end_headers()
         self.wfile.write(b"Bot Active")
 
     def do_HEAD(self):
         self.send_response(200)
+        self.send_header("Content-type", "text/plain")
         self.end_headers()
 
     def log_message(self, format, *args):
@@ -41,41 +54,41 @@ def run_health_server():
     server.serve_forever()
 
 def fetch_latest_post(handle):
-    # Binance App Open Gateway (Bypasses Cloudflare block on Render)
-    url = f"https://www.binance.com/bapi/composite/v1/public/pgc/feed/user/query?username={handle}&page=1&pageSize=1"
-    headers = {
-        "User-Agent": "okhttp/4.9.2 (Android; Mobile)",
-        "clienttype": "android",
-        "lang": "en",
-        "B-Culture": "en",
-        "Accept": "*/*"
-    }
-    
+    # Method 1: Binance Profile API (POST)
+    api_url = "https://www.binance.com/bapi/composite/v1/friendly/pgc/feed/profile/feed/list"
+    payload = {"handle": handle, "pageIndex": 1, "pageSize": 5}
     try:
-        res = requests.get(url, headers=headers, timeout=6)
+        res = requests.post(api_url, json=payload, headers=HEADERS, timeout=6)
         if res.status_code == 200:
             data = res.json().get("data", {})
-            items = data.get("items", []) or data.get("list", [])
+            items = data.get("list", []) or data.get("items", [])
             if items:
-                return items[0]
-            return {"empty": True}
-        else:
-            # Secondary Gateway fallback
-            fallback_url = f"https://www.binance.com/gateway-api/v1/public/square/feed/creator?handle={handle}&size=1"
-            res2 = requests.get(fallback_url, headers=headers, timeout=6)
-            if res2.status_code == 200:
-                items = res2.json().get("data", {}).get("list", [])
-                if items:
-                    return items[0]
-            print(f"[{handle}] Status: {res.status_code}", flush=True)
+                post = items[0]
+                pid = str(post.get("id") or post.get("feedId") or post.get("postId"))
+                text = post.get("body") or post.get("title") or post.get("content") or ""
+                return {"id": pid, "text": text, "author": handle}
+    except Exception:
+        pass
+
+    # Method 2: Public Profile Page Scraper (Direct Web Fallback)
+    try:
+        web_url = f"https://www.binance.com/en/square/profile/{handle}"
+        res_web = requests.get(web_url, headers=HEADERS, timeout=6)
+        if res_web.status_code == 200:
+            html = res_web.text
+            # Extract post IDs from public HTML
+            post_ids = re.findall(r'/square/post/(\d+)', html) or re.findall(r'"postId":"?(\d+)"?', html) or re.findall(r'"id":"?(\d{10,25})"?', html)
+            if post_ids:
+                return {"id": post_ids[0], "text": f"New post from {handle}", "author": handle}
     except Exception as e:
-        print(f"[{handle}] Network Error: {e}", flush=True)
+        print(f"Error checking {handle}: {e}", flush=True)
+
     return None
 
 def send_alert(post, handle):
-    post_id = post.get("id") or post.get("feedId") or post.get("postId")
-    body = post.get("body", "") or post.get("title", "") or post.get("content", "")
-    author = post.get("authorName") or handle
+    post_id = post.get("id")
+    body = post.get("text", "")
+    author = post.get("author", handle)
     post_url = f"https://www.binance.com/en/square/post/{post_id}"
 
     keywords = ["packet", "code", "box", "crypto box", "bp", "claim", "red", "🧧"]
@@ -98,24 +111,24 @@ def send_alert(post, handle):
     
     try:
         r = requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json=payload, timeout=6)
-        print(f"Sent Telegram Alert -> Status: {r.status_code}", flush=True)
+        print(f"Alert forwarded for {handle} -> Status: {r.status_code}", flush=True)
     except Exception as e:
         print(f"Telegram error: {e}", flush=True)
 
 def bot_loop():
-    print("🚀 Initializing Android Open Gateway...", flush=True)
+    print("🚀 Initializing Red Packet Watcher...", flush=True)
     seen = {}
 
     for c in CREATORS:
         handle = c["handle"]
         p = fetch_latest_post(handle)
-        if p and not p.get("empty"):
-            pid = str(p.get("id") or p.get("feedId") or p.get("postId"))
+        if p:
+            pid = str(p["id"])
             seen[handle] = pid
-            print(f"✅ Indexed {handle} -> Post ID: {pid}", flush=True)
+            print(f"✅ Indexed {handle} -> Last Post ID: {pid}", flush=True)
         else:
             seen[handle] = "0"
-            print(f"⚠️ {handle} ready (Awaiting new posts)", flush=True)
+            print(f"⚠️ {handle} ready (Awaiting new post)", flush=True)
         time.sleep(0.3)
 
     print("✅ Live polling active (2-second intervals)...", flush=True)
@@ -124,10 +137,10 @@ def bot_loop():
         for c in CREATORS:
             handle = c["handle"]
             post = fetch_latest_post(handle)
-            if post and not post.get("empty"):
-                pid = str(post.get("id") or post.get("feedId") or post.get("postId"))
+            if post:
+                pid = str(post["id"])
                 if handle in seen and seen[handle] != "0" and pid != seen[handle]:
-                    print(f"🔥 NEW POST DETECTED: {handle}", flush=True)
+                    print(f"🔥 NEW POST: {handle} (ID: {pid})", flush=True)
                     send_alert(post, handle)
                     seen[handle] = pid
                 elif seen.get(handle) == "0":
@@ -139,4 +152,4 @@ def bot_loop():
 if __name__ == "__main__":
     threading.Thread(target=run_health_server, daemon=True).start()
     bot_loop()
-            
+        
