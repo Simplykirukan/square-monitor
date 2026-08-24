@@ -9,18 +9,17 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 PORT = int(os.getenv("PORT", 10000))
 
-# Test Handle
+# Target handle to monitor
 MY_HANDLE = "SaMnAtIoN00"
 
-SESSION = requests.Session()
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-    "Accept": "*/*",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
     "Accept-Language": "en-US,en;q=0.9",
     "Origin": "https://www.binance.com",
     "Referer": "https://www.binance.com/en/square",
-    "Client-Type": "web",
-    "Lang": "en",
+    "clienttype": "web",
+    "lang": "en",
     "Content-Type": "application/json"
 }
 
@@ -29,7 +28,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
         self.end_headers()
-        self.wfile.write(b"Bot is active and running!")
+        self.wfile.write(b"Bot is active")
 
     def do_HEAD(self):
         self.send_response(200)
@@ -53,51 +52,35 @@ def send_telegram(text):
     }
     try:
         r = requests.post(url, json=payload, timeout=6)
-        print(f"📡 TG Sent -> Status: {r.status_code}", flush=True)
+        print(f"📡 TG Alert -> Status: {r.status_code}", flush=True)
     except Exception as e:
         print(f"❌ TG Error: {e}", flush=True)
 
 def fetch_latest_post():
-    # Binance Square Feed Query via Mobile Public Gateway
-    url = "https://www.binance.com/bapi/composite/v1/friendly/pgc/feed/user/page"
+    # Active public endpoint for Binance Square author posts
+    url = "https://www.binance.com/bapi/composite/v1/public/pgc/feed/author/posts"
     payload = {
-        "username": MY_HANDLE,
+        "handle": MY_HANDLE,
         "pageIndex": 1,
-        "pageSize": 1
+        "pageSize": 2
     }
+    
     try:
-        res = SESSION.post(url, json=payload, headers=HEADERS, timeout=6)
-        print(f"[DEBUG] Gateway HTTP Status: {res.status_code}", flush=True)
-
+        res = requests.post(url, json=payload, headers=HEADERS, timeout=6)
+        print(f"[DEBUG] API Status: {res.status_code}", flush=True)
+        
         if res.status_code == 200:
-            res_json = res.json()
-            data = res_json.get("data", {})
-            items = data.get("items", []) or data.get("list", [])
-            if items:
-                post = items[0]
-                pid = str(post.get("id") or post.get("feedId") or post.get("postId"))
-                body = post.get("body") or post.get("title") or post.get("content") or ""
-                return {"id": pid, "body": body}
-            else:
-                # If username parameter did not match, attempt with creator handle query
-                pass
-    except Exception as e:
-        print(f"[DEBUG] Gateway Error: {e}", flush=True)
-
-    # Fallback Direct Search Endpoint
-    alt_url = "https://www.binance.com/bapi/composite/v1/public/pgc/feed/query"
-    alt_payload = {"searchKey": MY_HANDLE, "page": 1, "pageSize": 1}
-    try:
-        res2 = SESSION.post(alt_url, json=alt_payload, headers=HEADERS, timeout=6)
-        if res2.status_code == 200:
-            items = res2.json().get("data", {}).get("items", [])
+            data = res.json().get("data", {})
+            items = data.get("list", []) or data.get("items", []) or []
             if items:
                 p = items[0]
                 pid = str(p.get("id") or p.get("feedId") or p.get("postId"))
-                body = p.get("body") or p.get("title") or ""
+                body = p.get("body") or p.get("title") or p.get("content") or ""
                 return {"id": pid, "body": body}
-    except Exception:
-        pass
+            else:
+                print(f"[DEBUG] Empty list returned for handle: {MY_HANDLE}", flush=True)
+    except Exception as e:
+        print(f"[DEBUG] API Error: {e}", flush=True)
 
     return None
 
@@ -119,8 +102,8 @@ def send_alert(post):
     send_telegram(message)
 
 def bot_loop():
-    print("🚀 Initializing Live API Gateway...", flush=True)
-    send_telegram(f"🔍 <b>Live Scanner Online for: {MY_HANDLE}</b>")
+    print("🚀 Initializing Live Author Post Scanner...", flush=True)
+    send_telegram(f"🔍 <b>Live Author Scanner Active for: {MY_HANDLE}</b>")
 
     last_post = fetch_latest_post()
     last_id = last_post["id"] if last_post else "0"
@@ -135,11 +118,11 @@ def bot_loop():
                 send_alert(post)
                 last_id = pid
             elif last_id == "0":
-                print(f"🎯 Post ID Registered: {pid}", flush=True)
+                print(f"🎯 Post Registered: {pid}", flush=True)
                 last_id = pid
         time.sleep(1.5)
 
 if __name__ == "__main__":
     threading.Thread(target=run_health_server, daemon=True).start()
     bot_loop()
-                
+    
