@@ -300,3 +300,313 @@ async function processCreator(handle) {
 
 
   if (!post) {
+    return;
+  }
+
+
+  console.log(
+    `📌 ${handle}: latest post ID ${post.id}`
+  );
+
+
+  // First time seeing this creator.
+  // Register the post without sending it.
+  if (!lastSeen.has(handle)) {
+
+    lastSeen.set(
+      handle,
+      post.id
+    );
+
+    console.log(
+      `🟢 ${handle}: initial post registered`
+    );
+
+    return;
+  }
+
+
+  const previousId =
+    lastSeen.get(handle);
+
+
+  if (previousId === post.id) {
+
+    console.log(
+      `✓ ${handle}: no new post`
+    );
+
+    return;
+  }
+
+
+  console.log("");
+  console.log(
+    `🔥🔥🔥 NEW POST FROM ${handle} 🔥🔥🔥`
+  );
+
+
+  lastSeen.set(
+    handle,
+    post.id
+  );
+
+
+  const lowerText =
+    post.text.toLowerCase();
+
+
+  const packetWords = [
+    "packet",
+    "red packet",
+    "crypto box",
+    "crypto packet",
+    "box",
+    "claim",
+    "code",
+    "bp",
+    "🧧"
+  ];
+
+
+  const isPacket =
+    packetWords.some(
+      word =>
+        lowerText.includes(word)
+    );
+
+
+  const title =
+    isPacket
+      ? "🧧 <b>RED PACKET ALERT!</b>"
+      : "📢 <b>NEW BINANCE SQUARE POST</b>";
+
+
+  const messageText =
+    post.text.trim().substring(0, 3000);
+
+
+  const message =
+    `${title}\n\n` +
+    `👤 <b>${escapeHtml(handle)}</b>\n\n` +
+    `${escapeHtml(messageText)}\n\n` +
+    `⚡ <a href="${post.url}">OPEN IN BINANCE</a>`;
+
+
+  await sendTelegram(message);
+}
+
+
+// ==========================================
+// CHECK ALL CREATORS
+// ==========================================
+
+async function checkAllCreators() {
+
+  console.log("");
+  console.log(
+    "=============================================="
+  );
+
+  console.log(
+    "🔄 CHECKING ALL 10 CREATORS"
+  );
+
+  console.log(
+    "=============================================="
+  );
+
+
+  for (const creator of CREATORS) {
+
+    await processCreator(
+      creator
+    );
+
+
+    // Small delay between creators.
+    await new Promise(
+      resolve =>
+        setTimeout(resolve, 1500)
+    );
+  }
+}
+
+
+// ==========================================
+// START
+// ==========================================
+
+async function startMonitor() {
+
+  console.log("");
+  console.log(
+    "=============================================="
+  );
+
+  console.log(
+    "      BINANCE SQUARE → TELEGRAM"
+  );
+
+  console.log(
+    "         10 CREATOR MONITOR"
+  );
+
+  console.log(
+    "=============================================="
+  );
+
+
+  CREATORS.forEach(
+    (creator, index) => {
+
+      console.log(
+        `${index + 1}. ${creator}`
+      );
+    }
+  );
+
+
+  console.log(
+    "=============================================="
+  );
+
+
+  browser =
+    await chromium.launch({
+
+      headless: true,
+
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu"
+      ]
+    });
+
+
+  context =
+    await browser.newContext({
+
+      viewport: {
+        width: 1366,
+        height: 900
+      },
+
+      locale: "en-US",
+
+      userAgent:
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+        "AppleWebKit/537.36 (KHTML, like Gecko) " +
+        "Chrome/124.0.0.0 Safari/537.36"
+    });
+
+
+  console.log(
+    "🚀 Playwright started"
+  );
+
+
+  console.log(
+    "🔍 Starting first scan..."
+  );
+
+
+  await checkAllCreators();
+
+
+  console.log("");
+  console.log(
+    "=============================================="
+  );
+
+  console.log(
+    "✅ INITIAL SCAN COMPLETE"
+  );
+
+  console.log(
+    "=============================================="
+  );
+
+
+  await sendTelegram(
+    "🟢 <b>Binance Square Monitor Online</b>\n\n" +
+    "Monitoring <b>10 creators</b>.\n" +
+    "New posts will be sent automatically."
+  );
+
+
+  while (true) {
+
+    await new Promise(
+      resolve =>
+        setTimeout(
+          resolve,
+          CHECK_INTERVAL
+        )
+    );
+
+
+    console.log("");
+    console.log(
+      "🔄 Running next scan..."
+    );
+
+
+    await checkAllCreators();
+  }
+}
+
+
+// ==========================================
+// SHUTDOWN
+// ==========================================
+
+async function shutdown() {
+
+  console.log(
+    "🛑 Shutting down..."
+  );
+
+
+  if (browser) {
+
+    try {
+      await browser.close();
+    } catch {}
+  }
+
+
+  server.close(() => {
+    process.exit(0);
+  });
+}
+
+
+process.on(
+  "SIGTERM",
+  shutdown
+);
+
+process.on(
+  "SIGINT",
+  shutdown
+);
+
+
+// ==========================================
+// RUN
+// ==========================================
+
+startMonitor().catch(
+  error => {
+
+    console.error(
+      "💥 FATAL ERROR:",
+      error
+    );
+
+    process.exit(1);
+  }
+);
