@@ -18,40 +18,13 @@ const CREATORS = [
   "Chungorcrypto"
 ];
 
-const CHECK_INTERVAL = 15000;
-
-const HEADERS = {
-  "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-    "AppleWebKit/537.36 (KHTML, like Gecko) " +
-    "Chrome/124.0.0.0 Safari/537.36",
-
-  "Accept":
-    "application/json, text/plain, */*",
-
-  "Accept-Language":
-    "en-US,en;q=0.9",
-
-  "Origin":
-    "https://www.binance.com",
-
-  "Referer":
-    "https://www.binance.com/en/square",
-
-  "clienttype":
-    "web",
-
-  "lang":
-    "en",
-
-  "Content-Type":
-    "application/json"
-};
+const CHECK_INTERVAL = 30000;
+const RENDER_WAIT = 8000;
 
 const lastSeen = new Map();
 
 let browser = null;
-let page = null;
+let context = null;
 
 
 // ==========================================
@@ -63,15 +36,11 @@ const server = http.createServer((req, res) => {
     "Content-Type": "text/plain"
   });
 
-  res.end(
-    "Binance Square Telegram Monitor is running"
-  );
+  res.end("Binance Square monitor is running");
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(
-    `🌐 Health server listening on port ${PORT}`
-  );
+  console.log(`🌐 Health server listening on port ${PORT}`);
 });
 
 
@@ -80,32 +49,19 @@ server.listen(PORT, "0.0.0.0", () => {
 // ==========================================
 
 async function sendTelegram(text) {
-
-  if (!TELEGRAM_BOT_TOKEN) {
-    console.log(
-      "❌ TELEGRAM_BOT_TOKEN is missing"
-    );
-    return false;
-  }
-
-  if (!TELEGRAM_CHAT_ID) {
-    console.log(
-      "❌ TELEGRAM_CHAT_ID is missing"
-    );
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+    console.log("❌ Telegram variables missing");
     return false;
   }
 
   try {
-
     const response = await fetch(
       `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
       {
         method: "POST",
-
         headers: {
           "Content-Type": "application/json"
         },
-
         body: JSON.stringify({
           chat_id: TELEGRAM_CHAT_ID,
           text: text,
@@ -117,29 +73,19 @@ async function sendTelegram(text) {
 
     const result = await response.json();
 
-    console.log(
-      `[TELEGRAM] ${response.status}`
-    );
+    console.log(`[TELEGRAM] ${response.status}`);
 
     if (!result.ok) {
-      console.log(
-        "❌ Telegram error:",
-        result
-      );
-
+      console.log("❌ Telegram error:", result);
       return false;
     }
 
-    console.log(
-      "✅ Telegram message sent"
-    );
-
+    console.log("✅ Telegram message sent");
     return true;
 
   } catch (error) {
-
     console.log(
-      "❌ Telegram request error:",
+      "❌ Telegram error:",
       error.message
     );
 
@@ -153,7 +99,6 @@ async function sendTelegram(text) {
 // ==========================================
 
 function escapeHtml(text) {
-
   return String(text || "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -163,105 +108,183 @@ function escapeHtml(text) {
 
 
 // ==========================================
-// BINANCE API
+// FIND POSTS ON PROFILE
 // ==========================================
 
-async function fetchLatestPost(handle) {
+async function getLatestPost(handle) {
 
-  const url =
-    "https://www.binance.com/" +
-    "bapi/composite/v1/public/pgc/feed/author/posts";
-
-  const payload = {
-    handle: handle,
-    pageIndex: 1,
-    pageSize: 5
-  };
+  const page = await context.newPage();
 
   try {
 
-    const response = await fetch(
-      url,
-      {
-        method: "POST",
+    const profileUrl =
+      `https://www.binance.com/en/square/profile/${handle}`;
 
-        headers: HEADERS,
+    console.log("");
+    console.log(`🔎 Checking ${handle}`);
+    console.log(`🌐 ${profileUrl}`);
 
-        body: JSON.stringify(payload)
+    await page.goto(profileUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 45000
+    });
+
+    console.log(
+      `⏳ Waiting ${RENDER_WAIT / 1000}s for Binance Square...`
+    );
+
+    await page.waitForTimeout(RENDER_WAIT);
+
+
+    // Scroll down slightly to force the Posts section
+    // to render if it is lazy-loaded.
+    await page.evaluate(() => {
+      window.scrollTo(0, 700);
+    });
+
+    await page.waitForTimeout(3000);
+
+
+    const result = await page.evaluate(() => {
+
+      const links = Array.from(
+        document.querySelectorAll("a[href]")
+      );
+
+      const postLinks = links
+        .map(link => ({
+          href: link.href,
+          text: link.innerText || "",
+          aria: link.getAttribute("aria-label") || ""
+        }))
+        .filter(item =>
+          /\/square\/post\//i.test(item.href)
+        );
+
+
+      // Remove duplicates.
+      const unique = [];
+
+      const seen = new Set();
+
+      for (const item of postLinks) {
+
+        if (!seen.has(item.href)) {
+          seen.add(item.href);
+          unique.push(item);
+        }
       }
+
+
+      return {
+        postLinks: unique.slice(0, 10),
+        title: document.title,
+        url: window.location.href,
+        bodyText: document.body.innerText.substring(0, 2000)
+      };
+    });
+
+
+    console.log(
+      `📄 Page title: ${result.title}`
     );
 
     console.log(
-      `[${handle}] API Status: ${response.status}`
+      `🔗 Post links found: ${result.postLinks.length}`
     );
 
-    if (!response.ok) {
 
-      const errorText =
-        await response.text();
+    if (!result.postLinks.length) {
 
       console.log(
-        `[${handle}] API response:`,
-        errorText.substring(0, 300)
+        `⚠️ ${handle}: no post links found after rendering`
       );
 
-      return [];
+      console.log(
+        `📄 Page URL: ${result.url}`
+      );
+
+      console.log(
+        `📝 Page text preview:`
+      );
+
+      console.log(
+        result.bodyText.substring(0, 500)
+      );
+
+      return null;
     }
 
-    const json =
-      await response.json();
 
-    const data =
-      json.data || {};
+    const newest = result.postLinks[0];
 
-    const items =
-      data.list ||
-      data.items ||
-      [];
 
-    if (!Array.isArray(items)) {
-      return [];
+    const match =
+      newest.href.match(
+        /\/square\/post\/([^/?#]+)/i
+      );
+
+
+    if (!match) {
+
+      console.log(
+        `⚠️ ${handle}: couldn't extract post ID`
+      );
+
+      return null;
     }
 
-    const posts = [];
 
-    for (const item of items) {
+    const postId = match[1];
 
-      if (!item || typeof item !== "object") {
-        continue;
-      }
 
-      const id =
-        item.id ||
-        item.feedId ||
-        item.postId;
+    // Open the actual post so we can get
+    // the full visible text.
+    const postPage =
+      await context.newPage();
 
-      const body =
-        item.body ||
-        item.title ||
-        item.content ||
-        "";
+    try {
 
-      if (!id) {
-        continue;
-      }
+      await postPage.goto(
+        newest.href,
+        {
+          waitUntil: "domcontentloaded",
+          timeout: 45000
+        }
+      );
 
-      posts.push({
-        id: String(id),
-        body: String(body)
-      });
+      await postPage.waitForTimeout(5000);
+
+
+      const postText =
+        await postPage.evaluate(() => {
+
+          return document.body.innerText || "";
+        });
+
+
+      return {
+        id: postId,
+        url: newest.href,
+        text: postText.substring(0, 5000)
+      };
+
+    } finally {
+
+      await postPage.close();
     }
-
-    return posts;
 
   } catch (error) {
 
     console.log(
-      `[${handle}] API ERROR:`,
-      error.message
+      `❌ ${handle}: ${error.message}`
     );
 
-    return [];
+    return null;
+
+  } finally {
+
+    await page.close();
   }
 }
 
@@ -272,332 +295,8 @@ async function fetchLatestPost(handle) {
 
 async function processCreator(handle) {
 
-  console.log(
-    `🔎 Checking ${handle}`
-  );
+  const post =
+    await getLatestPost(handle);
 
-  const posts =
-    await fetchLatestPost(handle);
 
-  if (!posts.length) {
-
-    console.log(
-      `⚠️ ${handle}: no posts returned`
-    );
-
-    return;
-  }
-
-  const newest =
-    posts[0];
-
-  const postId =
-    newest.id;
-
-  console.log(
-    `📌 ${handle}: latest post ${postId}`
-  );
-
-
-  // First scan.
-  // Register the current post but DON'T send it.
-  if (!lastSeen.has(handle)) {
-
-    lastSeen.set(
-      handle,
-      postId
-    );
-
-    console.log(
-      `🟢 ${handle}: initial post registered`
-    );
-
-    return;
-  }
-
-
-  const previousId =
-    lastSeen.get(handle);
-
-
-  if (previousId === postId) {
-
-    console.log(
-      `✓ ${handle}: no new post`
-    );
-
-    return;
-  }
-
-
-  // NEW POST
-  console.log(
-    `🔥 NEW POST DETECTED: ${handle}`
-  );
-
-  lastSeen.set(
-    handle,
-    postId
-  );
-
-
-  const body =
-    newest.body || "";
-
-
-  const lowerBody =
-    body.toLowerCase();
-
-
-  const packetKeywords = [
-    "packet",
-    "red packet",
-    "crypto box",
-    "crypto packet",
-    "box",
-    "claim",
-    "code",
-    "bp",
-    "🧧"
-  ];
-
-
-  const isPacket =
-    packetKeywords.some(
-      word =>
-        lowerBody.includes(word)
-    );
-
-
-  const title =
-    isPacket
-      ? "🧧 <b>RED PACKET ALERT!</b>"
-      : "📢 <b>NEW BINANCE SQUARE POST</b>";
-
-
-  const postUrl =
-    `https://www.binance.com/en/square/post/${postId}`;
-
-
-  const safeBody =
-    escapeHtml(
-      body.substring(0, 3000)
-    );
-
-
-  const message =
-    `${title}\n\n` +
-    `👤 <b>${escapeHtml(handle)}</b>\n\n` +
-    `${safeBody}\n\n` +
-    `⚡ <a href="${postUrl}">OPEN IN BINANCE</a>`;
-
-
-  await sendTelegram(
-    message
-  );
-}
-
-
-// ==========================================
-// CHECK ALL 10
-// ==========================================
-
-async function checkAllCreators() {
-
-  console.log("");
-  console.log(
-    "=========================================="
-  );
-  console.log(
-    "🔄 CHECKING ALL 10 CREATORS"
-  );
-  console.log(
-    "=========================================="
-  );
-
-
-  for (const creator of CREATORS) {
-
-    await processCreator(
-      creator
-    );
-
-    await new Promise(
-      resolve =>
-        setTimeout(resolve, 1000)
-    );
-  }
-}
-
-
-// ==========================================
-// START
-// ==========================================
-
-async function startMonitor() {
-
-  console.log("");
-  console.log(
-    "=========================================="
-  );
-  console.log(
-    "     BINANCE SQUARE → TELEGRAM"
-  );
-  console.log(
-    "        10 CREATOR MONITOR"
-  );
-  console.log(
-    "=========================================="
-  );
-
-
-  for (
-    let i = 0;
-    i < CREATORS.length;
-    i++
-  ) {
-
-    console.log(
-      `${i + 1}. ${CREATORS[i]}`
-    );
-  }
-
-
-  console.log(
-    "=========================================="
-  );
-
-
-  browser =
-    await chromium.launch({
-
-      headless: true,
-
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage"
-      ]
-    });
-
-
-  page =
-    await browser.newPage({
-
-      viewport: {
-        width: 1366,
-        height: 900
-      },
-
-      userAgent:
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-        "AppleWebKit/537.36 (KHTML, like Gecko) " +
-        "Chrome/124.0.0.0 Safari/537.36"
-    });
-
-
-  console.log(
-    "🚀 Playwright started"
-  );
-
-
-  console.log(
-    "🔍 First scan starting..."
-  );
-
-
-  await checkAllCreators();
-
-
-  console.log("");
-  console.log(
-    "=========================================="
-  );
-  console.log(
-    "✅ INITIAL SCAN COMPLETE"
-  );
-  console.log(
-    "=========================================="
-  );
-
-
-  await sendTelegram(
-    "🟢 <b>Binance Square Monitor Online</b>\n\n" +
-    "Monitoring <b>10 creators</b>.\n" +
-    "New posts will be sent automatically."
-  );
-
-
-  while (true) {
-
-    await new Promise(
-      resolve =>
-        setTimeout(
-          resolve,
-          CHECK_INTERVAL
-        )
-    );
-
-
-    console.log("");
-    console.log(
-      "🔄 Running new-post check..."
-    );
-
-
-    await checkAllCreators();
-  }
-}
-
-
-// ==========================================
-// SHUTDOWN
-// ==========================================
-
-async function shutdown() {
-
-  console.log(
-    "🛑 Shutting down..."
-  );
-
-
-  if (browser) {
-
-    try {
-      await browser.close();
-    } catch {}
-  }
-
-
-  server.close(() => {
-    process.exit(0);
-  });
-}
-
-
-process.on(
-  "SIGTERM",
-  shutdown
-);
-
-process.on(
-  "SIGINT",
-  shutdown
-);
-
-
-// ==========================================
-// RUN
-// ==========================================
-
-startMonitor().catch(
-  error => {
-
-    console.error(
-      "💥 FATAL ERROR:",
-      error
-    );
-
-    process.exit(1);
-  }
-);
+  if (!post) {
