@@ -1,128 +1,307 @@
 import os
-import sys
 import time
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import json
 import requests
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-PORT = int(os.getenv("PORT", 10000))
 
-# Target handle to monitor
-MY_HANDLE = "SaMnAtIoN00"
+CREATORS = [
+    "SaMnAtIoN00",
+    "Square-Creator-1df1e693e2192",
+    "Acqua_DY",
+    "Square-Creator-5dd415213",
+    "xiaoxiong",
+    "sanmageshuai",
+    "Square-Creator-4d698fecefd05",
+    "susea",
+    "Square-Creator-19579394c90dc",
+    "Chungorcrypto",
+]
+
+STATE_FILE = "seen_posts.json"
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/124.0.0.0 Safari/537.36",
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "en-US,en;q=0.9",
     "Origin": "https://www.binance.com",
     "Referer": "https://www.binance.com/en/square",
     "clienttype": "web",
     "lang": "en",
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
 }
 
-class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"Bot is active")
 
-    def do_HEAD(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain")
-        self.end_headers()
+def load_state():
+    if not os.path.exists(STATE_FILE):
+        return {}
 
-    def log_message(self, format, *args):
-        return
+    try:
+        with open(STATE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
 
-def run_health_server():
-    server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
-    server.serve_forever()
+
+def save_state(state):
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(state, f, indent=2, ensure_ascii=False)
+
 
 def send_telegram(text):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("ERROR: Telegram secrets are missing.")
+        return False
+
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": text,
         "parse_mode": "HTML",
-        "disable_web_page_preview": False
+        "disable_web_page_preview": False,
     }
-    try:
-        r = requests.post(url, json=payload, timeout=6)
-        print(f"📡 TG Alert -> Status: {r.status_code}", flush=True)
-    except Exception as e:
-        print(f"❌ TG Error: {e}", flush=True)
 
-def fetch_latest_post():
-    # Active public endpoint for Binance Square author posts
-    url = "https://www.binance.com/bapi/composite/v1/public/pgc/feed/author/posts"
+    try:
+        response = requests.post(
+            url,
+            json=payload,
+            timeout=15
+        )
+
+        print(
+            f"[TELEGRAM] Status: {response.status_code}",
+            flush=True
+        )
+
+        if response.status_code != 200:
+            print(
+                f"[TELEGRAM] {response.text[:500]}",
+                flush=True
+            )
+            return False
+
+        return True
+
+    except Exception as e:
+        print(f"[TELEGRAM ERROR] {e}", flush=True)
+        return False
+
+
+def fetch_posts(handle):
+    url = (
+        "https://www.binance.com/"
+        "bapi/composite/v1/public/pgc/feed/author/posts"
+    )
+
     payload = {
-        "handle": MY_HANDLE,
+        "handle": handle,
         "pageIndex": 1,
-        "pageSize": 2
+        "pageSize": 5,
     }
-    
+
     try:
-        res = requests.post(url, json=payload, headers=HEADERS, timeout=6)
-        print(f"[DEBUG] API Status: {res.status_code}", flush=True)
-        
-        if res.status_code == 200:
-            data = res.json().get("data", {})
-            items = data.get("list", []) or data.get("items", []) or []
-            if items:
-                p = items[0]
-                pid = str(p.get("id") or p.get("feedId") or p.get("postId"))
-                body = p.get("body") or p.get("title") or p.get("content") or ""
-                return {"id": pid, "body": body}
-            else:
-                print(f"[DEBUG] Empty list returned for handle: {MY_HANDLE}", flush=True)
+        response = requests.post(
+            url,
+            json=payload,
+            headers=HEADERS,
+            timeout=15
+        )
+
+        print(
+            f"[{handle}] API: {response.status_code}",
+            flush=True
+        )
+
+        if response.status_code != 200:
+            return []
+
+        data = response.json().get("data", {})
+
+        if not isinstance(data, dict):
+            return []
+
+        items = (
+            data.get("list")
+            or data.get("items")
+            or []
+        )
+
+        if not isinstance(items, list):
+            return []
+
+        posts = []
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+
+            post_id = (
+                item.get("id")
+                or item.get("feedId")
+                or item.get("postId")
+            )
+
+            body = (
+                item.get("body")
+                or item.get("title")
+                or item.get("content")
+                or ""
+            )
+
+            if not post_id:
+                continue
+
+            posts.append({
+                "id": str(post_id),
+                "body": str(body),
+            })
+
+        return posts
+
     except Exception as e:
-        print(f"[DEBUG] API Error: {e}", flush=True)
+        print(
+            f"[{handle}] API ERROR: {e}",
+            flush=True
+        )
+        return []
 
-    return None
 
-def send_alert(post):
+def send_post(handle, post):
     post_id = post["id"]
-    body = post.get("body", "")
-    post_url = f"https://www.binance.com/en/square/post/{post_id}"
+    body = post["body"]
 
-    keywords = ["packet", "code", "box", "crypto box", "bp", "claim", "red", "🧧"]
-    is_red_packet = any(k in body.lower() for k in keywords)
-    alert_tag = "🧧 <b>RED PACKET ALERT!</b>\n\n" if is_red_packet else "📢 <b>New Square Post</b>\n\n"
+    post_url = (
+        f"https://www.binance.com/en/square/post/{post_id}"
+    )
+
+    keywords = [
+        "packet",
+        "red packet",
+        "crypto box",
+        "box",
+        "claim",
+        "code",
+        "bp",
+        "🧧",
+    ]
+
+    lower_body = body.lower()
+
+    is_packet = any(
+        keyword in lower_body
+        for keyword in keywords
+    )
+
+    if is_packet:
+        title = "🧧 <b>RED PACKET ALERT!</b>"
+    else:
+        title = "📢 <b>NEW BINANCE SQUARE POST</b>"
 
     message = (
-        f"{alert_tag}"
-        f"👤 <b>{MY_HANDLE}</b>\n\n"
-        f"{body[:2500]}\n\n"
-        f"⚡ <a href='{post_url}'>OPEN IN BINANCE NOW</a>"
+        f"{title}\n\n"
+        f"👤 <b>{handle}</b>\n\n"
+        f"{body[:3000]}\n\n"
+        f"⚡ "
+        f"<a href=\"{post_url}\">OPEN IN BINANCE</a>"
     )
-    send_telegram(message)
 
-def bot_loop():
-    print("🚀 Initializing Live Author Post Scanner...", flush=True)
-    send_telegram(f"🔍 <b>Live Author Scanner Active for: {MY_HANDLE}</b>")
+    return send_telegram(message)
 
-    last_post = fetch_latest_post()
-    last_id = last_post["id"] if last_post else "0"
-    print(f"✅ Initialized. Last Seen Post ID: {last_id}", flush=True)
 
-    while True:
-        post = fetch_latest_post()
-        if post:
-            pid = post["id"]
-            if last_id != "0" and pid != last_id:
-                print(f"🔥 NEW POST DETECTED: {pid}", flush=True)
-                send_alert(post)
-                last_id = pid
-            elif last_id == "0":
-                print(f"🎯 Post Registered: {pid}", flush=True)
-                last_id = pid
-        time.sleep(1.5)
+def check_creator(handle, state):
+    posts = fetch_posts(handle)
+
+    if not posts:
+        print(
+            f"[{handle}] No posts returned.",
+            flush=True
+        )
+        return
+
+    newest = posts[0]
+    newest_id = newest["id"]
+
+    previous_id = state.get(handle)
+
+    # First run:
+    # register the current newest post without sending it.
+    if previous_id is None:
+        state[handle] = newest_id
+
+        print(
+            f"[{handle}] Initial post registered: "
+            f"{newest_id}",
+            flush=True
+        )
+
+        return
+
+    if newest_id == previous_id:
+        print(
+            f"[{handle}] No new post.",
+            flush=True
+        )
+        return
+
+    print(
+        f"🔥 [{handle}] NEW POST: {newest_id}",
+        flush=True
+    )
+
+    if send_post(handle, newest):
+        state[handle] = newest_id
+        print(
+            f"✅ [{handle}] Sent to Telegram.",
+            flush=True
+        )
+    else:
+        print(
+            f"❌ [{handle}] Telegram send failed.",
+            flush=True
+        )
+
+
+def main():
+    print("=" * 60)
+    print("BINANCE SQUARE → TELEGRAM")
+    print("10 CREATOR MONITOR")
+    print("=" * 60)
+
+    state = load_state()
+
+    print(
+        f"Creators: {len(CREATORS)}",
+        flush=True
+    )
+
+    for number, creator in enumerate(CREATORS, 1):
+        print(
+            f"{number}. {creator}",
+            flush=True
+        )
+
+    print("=" * 60)
+
+    if not TELEGRAM_BOT_TOKEN:
+        print("ERROR: BOT_TOKEN is missing.")
+
+    if not TELEGRAM_CHAT_ID:
+        print("ERROR: CHAT_ID is missing.")
+
+    for creator in CREATORS:
+        check_creator(creator, state)
+
+    save_state(state)
+
+    print("=" * 60)
+    print("CHECK COMPLETE")
+    print("=" * 60)
+
 
 if __name__ == "__main__":
-    threading.Thread(target=run_health_server, daemon=True).start()
-    bot_loop()
-    
+    main()
