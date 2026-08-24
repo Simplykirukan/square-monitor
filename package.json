@@ -1,12 +1,11 @@
 {
   "name": "binance-square-telegram",
   "version": "1.0.0",
-  "description": "Binance Square 10 creator monitor with Telegram alerts",
   "main": "monitor.js",
   "scripts": {
-    "start": "npx playwright install chromium && node monitor.js"
+    "start": "node monitor.js"
   },
-  "dependencies": {
-    "playwright": "^1.55.0"
+  "engines": {
+    "node": ">=18"
   }
 }
