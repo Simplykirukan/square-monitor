@@ -2,19 +2,20 @@ name: Binance Square Auto-Sync
 
 on:
   schedule:
-    # Runs automatically every 5 minutes
     - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
   check-feed:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: setup-python@v5
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
