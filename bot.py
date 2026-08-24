@@ -1,8 +1,6 @@
 import os
 import sys
-import re
 import time
-import json
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
@@ -25,21 +23,22 @@ CREATORS = [
 ]
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/json,*/*;q=0.8",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
     "Accept-Language": "en-US,en;q=0.9",
+    "Origin": "https://www.binance.com",
     "Referer": "https://www.binance.com/en/square",
     "clienttype": "web",
     "lang": "en"
 }
 
-# Mini web server for Render keep-alive
+# Mini web server for Render health checks
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
         self.end_headers()
-        self.wfile.write(b"Bot Active")
+        self.wfile.write(b"Bot is online and polling!")
 
     def do_HEAD(self):
         self.send_response(200)
@@ -53,41 +52,48 @@ def run_health_server():
     server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
     server.serve_forever()
 
-def fetch_latest_post(handle):
-    # Method 1: Binance Profile API (POST)
-    api_url = "https://www.binance.com/bapi/composite/v1/friendly/pgc/feed/profile/feed/list"
-    payload = {"handle": handle, "pageIndex": 1, "pageSize": 5}
+def send_telegram(text):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": False
+    }
     try:
-        res = requests.post(api_url, json=payload, headers=HEADERS, timeout=6)
+        r = requests.post(url, json=payload, timeout=6)
+        print(f"📡 TG Alert Result: {r.status_code}", flush=True)
+    except Exception as e:
+        print(f"❌ TG Send Error: {e}", flush=True)
+
+def fetch_latest_post(handle):
+    # Binance Global Search Gateway for Creator Content
+    url = "https://www.binance.com/bapi/composite/v1/public/pgc/search/content"
+    payload = {
+        "keyword": handle,
+        "type": "USER_CONTENT",
+        "pageIndex": 1,
+        "pageSize": 3
+    }
+    try:
+        res = requests.post(url, json=payload, headers=HEADERS, timeout=6)
         if res.status_code == 200:
             data = res.json().get("data", {})
             items = data.get("list", []) or data.get("items", [])
-            if items:
-                post = items[0]
-                pid = str(post.get("id") or post.get("feedId") or post.get("postId"))
-                text = post.get("body") or post.get("title") or post.get("content") or ""
-                return {"id": pid, "text": text, "author": handle}
-    except Exception:
-        pass
-
-    # Method 2: Public Profile Page Scraper (Direct Web Fallback)
-    try:
-        web_url = f"https://www.binance.com/en/square/profile/{handle}"
-        res_web = requests.get(web_url, headers=HEADERS, timeout=6)
-        if res_web.status_code == 200:
-            html = res_web.text
-            # Extract post IDs from public HTML
-            post_ids = re.findall(r'/square/post/(\d+)', html) or re.findall(r'"postId":"?(\d+)"?', html) or re.findall(r'"id":"?(\d{10,25})"?', html)
-            if post_ids:
-                return {"id": post_ids[0], "text": f"New post from {handle}", "author": handle}
+            for item in items:
+                author_name = item.get("authorName") or item.get("handle") or ""
+                # Match handle
+                if handle.lower() in author_name.lower():
+                    pid = str(item.get("id") or item.get("postId") or item.get("feedId"))
+                    body = item.get("body") or item.get("title") or item.get("content") or ""
+                    return {"id": pid, "body": body, "author": author_name}
     except Exception as e:
-        print(f"Error checking {handle}: {e}", flush=True)
-
+        print(f"Fetch error for {handle}: {e}", flush=True)
     return None
 
 def send_alert(post, handle):
-    post_id = post.get("id")
-    body = post.get("text", "")
+    post_id = post["id"]
+    body = post.get("body", "")
     author = post.get("author", handle)
     post_url = f"https://www.binance.com/en/square/post/{post_id}"
 
@@ -101,46 +107,36 @@ def send_alert(post, handle):
         f"{body[:2500]}\n\n"
         f"⚡ <a href='{post_url}'>OPEN IN BINANCE NOW</a>"
     )
-
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": False
-    }
-    
-    try:
-        r = requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json=payload, timeout=6)
-        print(f"Alert forwarded for {handle} -> Status: {r.status_code}", flush=True)
-    except Exception as e:
-        print(f"Telegram error: {e}", flush=True)
+    send_telegram(message)
 
 def bot_loop():
-    print("🚀 Initializing Red Packet Watcher...", flush=True)
+    print("🚀 Initializing Live Search Watcher...", flush=True)
+    # Send verification message to Telegram on start
+    send_telegram("🚀 <b>Red Packet Watcher is now LIVE and monitoring!</b>")
+    
     seen = {}
 
     for c in CREATORS:
         handle = c["handle"]
-        p = fetch_latest_post(handle)
-        if p:
-            pid = str(p["id"])
-            seen[handle] = pid
-            print(f"✅ Indexed {handle} -> Last Post ID: {pid}", flush=True)
+        post = fetch_latest_post(handle)
+        if post:
+            seen[handle] = post["id"]
+            print(f"✅ Indexed {handle} (Latest ID: {post['id']})", flush=True)
         else:
             seen[handle] = "0"
             print(f"⚠️ {handle} ready (Awaiting new post)", flush=True)
         time.sleep(0.3)
 
-    print("✅ Live polling active (2-second intervals)...", flush=True)
+    print("✅ Full 2-second scan loop active!", flush=True)
 
     while True:
         for c in CREATORS:
             handle = c["handle"]
             post = fetch_latest_post(handle)
             if post:
-                pid = str(post["id"])
+                pid = post["id"]
                 if handle in seen and seen[handle] != "0" and pid != seen[handle]:
-                    print(f"🔥 NEW POST: {handle} (ID: {pid})", flush=True)
+                    print(f"🔥 NEW POST FOUND FOR {handle} -> {pid}", flush=True)
                     send_alert(post, handle)
                     seen[handle] = pid
                 elif seen.get(handle) == "0":
