@@ -20,8 +20,8 @@ const CREATORS = [
     url: "https://app.binance.com/uni-qr/cpro/Square-Creator-1df1e693e2192?l=en&r=K24ZYWQM&uc=app_square_share_link&us=telegram"
   },
   {
-    name: "Acqua_DY",
-    url: "https://app.binance.com/uni-qr/cpro/Acqua_DY?l=en&r=M4BDZ6KL&uc=app_square_share_link&us=telegram"
+  name: "Acqua_DY",
+  url: "https://www.binance.com/en/square/profile/Acqua_DY"
   },
   {
     name: "Square-Creator-5dd415213",
