@@ -351,8 +351,9 @@ async function startMonitor() {
     );
 
     const browser = await chromium.launch({
-        headless: true
-    });
+    headless: true,
+    channel: "chromium"
+});
 
     const context = await browser.newContext({
 
