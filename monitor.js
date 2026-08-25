@@ -2,60 +2,95 @@ const { chromium } = require("playwright");
 const http = require("http");
 
 const PORT = process.env.PORT || 10000;
+
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
+// ==================================================
+// 10 BINANCE SQUARE CREATOR PROFILES
+// ==================================================
+
 const CREATORS = [
-  "SaMnAtIoN00",
-  "Square-Creator-1df1e693e2192",
-  "Acqua_DY",
-  "Square-Creator-5dd415213",
-  "xiaoxiong",
-  "sanmageshuai",
-  "Square-Creator-4d698fecefd05",
-  "susea",
-  "Square-Creator-19579394c90dc",
-  "Chungorcrypto"
+  {
+    name: "SaMnAtIoN00",
+    url: "https://app.binance.com/uni-qr/cpro/SaMnAtIoN00?l=en"
+  },
+  {
+    name: "Square-Creator-1df1e693e2192",
+    url: "https://app.binance.com/uni-qr/cpro/Square-Creator-1df1e693e2192?l=en&r=K24ZYWQM&uc=app_square_share_link&us=telegram"
+  },
+  {
+    name: "Acqua_DY",
+    url: "https://app.binance.com/uni-qr/cpro/Acqua_DY?l=en&r=M4BDZ6KL&uc=app_square_share_link&us=telegram"
+  },
+  {
+    name: "Square-Creator-5dd415213",
+    url: "https://app.binance.com/uni-qr/cpro/Square-Creator-5dd415213?l=en&r=BM3RTM2G&uc=web_square_share_link&us=copylink"
+  },
+  {
+    name: "xiaoxiong",
+    url: "https://app.binance.com/uni-qr/cpro/xiaoxiong?l=en&r=OVAOU1IB&uc=app_square_share_link&us=copylink"
+  },
+  {
+    name: "sanmageshuai",
+    url: "https://app.binance.com/uni-qr/cpro/sanmageshuai?l=en&r=SDR9QGU2&uc=app_square_share_link&us=copylink"
+  },
+  {
+    name: "Square-Creator-4d698fecefd05",
+    url: "https://app.binance.com/uni-qr/cpro/Square-Creator-4d698fecefd05?l=en&r=ELIAA7DF&uc=app_square_share_link&us=copylink"
+  },
+  {
+    name: "susea",
+    url: "https://app.binance.com/uni-qr/cpro/susea?l=en&r=CXOE1FC0&uc=app_square_share_link&us=copylink"
+  },
+  {
+    name: "Square-Creator-19579394c90dc",
+    url: "https://app.binance.com/uni-qr/cpro/Square-Creator-19579394c90dc?l=en&r=SW55NRP9&uc=app_square_share_link&us=copylink"
+  },
+  {
+    name: "Chungorcrypto",
+    url: "https://app.binance.com/uni-qr/cpro/Chungorcrypto?l=en&r=V3PR8MCA&uc=app_square_share_link&us=copylink"
+  }
 ];
 
-const seenPosts = new Set();
+console.log("");
+console.log("==========================================");
+console.log("🚀 BINANCE SQUARE CREATOR DIAGNOSTIC");
+console.log("==========================================");
+console.log(`👥 ${CREATORS.length} CREATORS`);
+console.log("==========================================");
 
-console.log("==========================================");
-console.log("🚀 BINANCE SQUARE → TELEGRAM");
-console.log("==========================================");
-console.log("👥 10 CREATOR MONITOR");
-console.log("==========================================");
-
-CREATORS.forEach((creator, i) => {
-  console.log(`${i + 1}. ${creator}`);
+CREATORS.forEach((creator, index) => {
+  console.log(`${index + 1}. ${creator.name}`);
 });
 
 console.log("==========================================");
+console.log("");
 
-// --------------------------------------------------
+// ==================================================
 // HEALTH SERVER
-// --------------------------------------------------
+// ==================================================
 
 const server = http.createServer((req, res) => {
   res.writeHead(200, {
     "Content-Type": "text/plain"
   });
 
-  res.end("Binance Square Telegram monitor is running");
+  res.end("Binance Square monitor is running");
 });
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🌐 Health server running on port ${PORT}`);
 });
 
-// --------------------------------------------------
-// TELEGRAM
-// --------------------------------------------------
+// ==================================================
+// TELEGRAM TEST
+// ==================================================
 
-async function sendTelegram(message) {
+async function sendTelegram(text) {
   if (!BOT_TOKEN || !CHAT_ID) {
-    console.log("⚠️ Telegram variables are missing");
-    return;
+    console.log("❌ TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID missing");
+    return false;
   }
 
   try {
@@ -69,438 +104,335 @@ async function sendTelegram(message) {
       },
       body: JSON.stringify({
         chat_id: CHAT_ID,
-        text: message,
-        disable_web_page_preview: false
+        text: text,
+        disable_web_page_preview: true
       })
     });
 
+    const result = await response.text();
+
     if (response.ok) {
       console.log("✅ Telegram message sent");
-    } else {
-      const text = await response.text();
-      console.log("❌ Telegram error:", response.status, text);
-    }
-  } catch (error) {
-    console.log("❌ Telegram connection error:", error.message);
-  }
-}
-
-// --------------------------------------------------
-// CHECK WHETHER RESPONSE LOOKS LIKE SQUARE DATA
-// --------------------------------------------------
-
-function looksInteresting(url, data) {
-  const lowerUrl = url.toLowerCase();
-
-  const interestingUrlWords = [
-    "square",
-    "pgc",
-    "feed",
-    "article",
-    "buzz",
-    "creator",
-    "content",
-    "recommend",
-    "timeline",
-    "author"
-  ];
-
-  if (interestingUrlWords.some(word => lowerUrl.includes(word))) {
-    return true;
-  }
-
-  if (!data) {
-    return false;
-  }
-
-  const text = JSON.stringify(data).toLowerCase();
-
-  const interestingDataWords = [
-    "squareauthorid",
-    "authorname",
-    "webLink".toLowerCase(),
-    "sharelink",
-    "contenttype",
-    "cardtype",
-    "username",
-    "postid",
-    "feedid"
-  ];
-
-  return interestingDataWords.some(word => text.includes(word));
-}
-
-// --------------------------------------------------
-// EXTRACT POSTS FROM UNKNOWN RESPONSE
-// --------------------------------------------------
-
-function findPosts(obj, found = []) {
-  if (!obj || typeof obj !== "object") {
-    return found;
-  }
-
-  if (Array.isArray(obj)) {
-    for (const item of obj) {
-      findPosts(item, found);
+      return true;
     }
 
-    return found;
-  }
-
-  // A Binance Square post usually contains an id and author information
-  if (
-    obj.id &&
-    (
-      obj.authorName ||
-      obj.username ||
-      obj.squareAuthorId ||
-      obj.contentType ||
-      obj.cardType
-    )
-  ) {
-    found.push(obj);
-  }
-
-  for (const key of Object.keys(obj)) {
-    try {
-      findPosts(obj[key], found);
-    } catch (_) {}
-  }
-
-  return found;
-}
-
-// --------------------------------------------------
-// PROCESS POSSIBLE POSTS
-// --------------------------------------------------
-
-async function processPosts(posts) {
-  if (!posts || posts.length === 0) {
-    return;
-  }
-
-  for (const post of posts) {
-    const id = String(post.id || "");
-
-    if (!id) {
-      continue;
-    }
-
-    const author =
-      post.authorName ||
-      post.username ||
-      post.author ||
-      "";
-
-    const content =
-      post.title ||
-      post.subTitle ||
-      post.content ||
-      post.body ||
-      "";
-
-    const webLink =
-      post.webLink ||
-      post.shareLink ||
-      `https://www.binance.com/en/square/post/${id}`;
-
-    // Only show posts that could potentially belong to our creators.
-    const authorMatches = CREATORS.some(
-      creator =>
-        String(author).toLowerCase() ===
-        String(creator).toLowerCase()
+    console.log(
+      `❌ Telegram error ${response.status}: ${result}`
     );
 
-    if (authorMatches) {
-      console.log("");
-      console.log("🎯 ========================================");
-      console.log("🎯 TARGET CREATOR POST FOUND!");
-      console.log("🎯 ========================================");
-      console.log(`👤 Author: ${author}`);
-      console.log(`🆔 ID: ${id}`);
-      console.log(`📝 Content: ${String(content).slice(0, 500)}`);
-      console.log(`🔗 Link: ${webLink}`);
-      console.log("🎯 ========================================");
-      console.log("");
+    return false;
 
-      if (!seenPosts.has(id)) {
-        seenPosts.add(id);
+  } catch (error) {
+    console.log(
+      `❌ Telegram connection error: ${error.message}`
+    );
 
-        const message =
-          `📢 <b>NEW BINANCE SQUARE POST</b>\n\n` +
-          `👤 <b>${escapeHtml(author)}</b>\n\n` +
-          `${escapeHtml(String(content).slice(0, 3000))}\n\n` +
-          `⚡ <a href="${webLink}">OPEN IN BINANCE</a>`;
-
-        await sendTelegram(message);
-      }
-    }
+    return false;
   }
 }
 
-// --------------------------------------------------
-// HTML ESCAPE
-// --------------------------------------------------
-
-function escapeHtml(text) {
-  return String(text)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-// --------------------------------------------------
-// MAIN BROWSER MONITOR
-// --------------------------------------------------
+// ==================================================
+// MAIN BROWSER
+// ==================================================
 
 async function startMonitor() {
+
   console.log("");
   console.log("==========================================");
-  console.log("🔧 BINANCE SQUARE API DIAGNOSTIC");
+  console.log("🔧 STARTING PROFILE DIAGNOSTIC");
   console.log("==========================================");
-  console.log("");
 
-  console.log("👥 Creators we need to identify:");
-
-  CREATORS.forEach((creator, i) => {
-    console.log(`${i + 1}. ${creator}`);
-  });
-
-  console.log("");
-
-  await sendTelegram(
-    "🚀 <b>Binance Square monitor started</b>\n\n" +
-    "👥 Monitoring 10 creators\n" +
-    "🔎 Searching Binance Square API responses..."
+  const telegramOK = await sendTelegram(
+    "🔧 <b>Binance Square diagnostic started</b>\n\n" +
+    "👥 Testing 10 creator profiles\n" +
+    "🌐 Capturing Binance network responses..."
   );
 
-  console.log("✅ Telegram test successful");
+  if (telegramOK) {
+    console.log("✅ Telegram test successful");
+  }
+
   console.log("");
   console.log("🌐 Starting Chromium...");
 
   const browser = await chromium.launch({
     headless: true,
+
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
-      "--disable-gpu"
+      "--disable-gpu",
+      "--disable-blink-features=AutomationControlled"
     ]
   });
 
   const context = await browser.newContext({
-    userAgent:
-      "Mozilla/5.0 (X11; Linux x86_64) " +
-      "AppleWebKit/537.36 (KHTML, like Gecko) " +
-      "Chrome/124.0.0.0 Safari/537.36",
     viewport: {
       width: 1440,
       height: 900
-    }
+    },
+
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+      "AppleWebKit/537.36 (KHTML, like Gecko) " +
+      "Chrome/124.0.0.0 Safari/537.36",
+
+    locale: "en-US"
   });
 
   const page = await context.newPage();
 
-  // ------------------------------------------------
-  // REQUEST LOGGING
-  // ------------------------------------------------
+  // ==================================================
+  // REQUEST LOGGER
+  // ==================================================
 
   page.on("request", request => {
+
     const url = request.url();
 
+    if (!url.includes("binance")) {
+      return;
+    }
+
+    const type = request.resourceType();
+
     if (
-      url.includes("binance.com") &&
-      (
-        url.includes("/bapi/") ||
-        url.includes("/api/") ||
-        url.includes("square") ||
-        url.includes("pgc") ||
-        url.includes("feed")
-      )
+      type === "xhr" ||
+      type === "fetch" ||
+      url.includes("/bapi/") ||
+      url.includes("/api/")
     ) {
-      console.log(`➡️ API REQUEST: ${request.method()} ${url}`);
+
+      console.log("");
+      console.log("➡️ BINANCE REQUEST");
+      console.log(`METHOD: ${request.method()}`);
+      console.log(`TYPE: ${type}`);
+      console.log(`URL: ${url}`);
+
+      try {
+        const postData = request.postData();
+
+        if (postData) {
+          console.log(
+            `📦 POST DATA: ${postData.slice(0, 2000)}`
+          );
+        }
+      } catch (_) {}
     }
   });
 
-  // ------------------------------------------------
-  // RESPONSE CAPTURE
-  // ------------------------------------------------
+  // ==================================================
+  // RESPONSE LOGGER
+  // ==================================================
 
   page.on("response", async response => {
+
     const url = response.url();
 
-    if (!url.includes("binance.com")) {
+    if (!url.includes("binance")) {
+      return;
+    }
+
+    const type = response.request().resourceType();
+
+    if (
+      type !== "xhr" &&
+      type !== "fetch"
+    ) {
       return;
     }
 
     const status = response.status();
 
-    // We only care about likely API responses.
-    const looksLikeApi =
-      url.includes("/bapi/") ||
-      url.includes("/api/") ||
-      url.includes("square") ||
-      url.includes("pgc") ||
-      url.includes("feed") ||
-      url.includes("buzz") ||
-      url.includes("article");
-
-    if (!looksLikeApi) {
-      return;
-    }
-
     console.log("");
-    console.log("📡 RESPONSE");
+    console.log("📡 BINANCE RESPONSE");
     console.log(`STATUS: ${status}`);
+    console.log(`TYPE: ${type}`);
     console.log(`URL: ${url}`);
 
-    if (status !== 200) {
-      console.log("⚠️ Non-200 response");
+    if (status < 200 || status >= 300) {
+      console.log("⚠️ Non-success response");
       return;
     }
 
     try {
+
       const contentType =
         response.headers()["content-type"] || "";
 
-      if (!contentType.includes("json")) {
-        console.log(`ℹ️ Content-Type: ${contentType}`);
+      if (
+        !contentType.includes("json") &&
+        !url.includes("/bapi/") &&
+        !url.includes("/api/")
+      ) {
         return;
       }
 
-      const data = await response.json();
+      const text = await response.text();
 
-      if (looksInteresting(url, data)) {
-        console.log("🔥 INTERESTING BINANCE RESPONSE");
-
-        // Print only a manageable amount to Render logs.
-        let preview = JSON.stringify(data);
-
-        if (preview.length > 5000) {
-          preview = preview.slice(0, 5000) +
-            "... [TRUNCATED]";
-        }
-
-        console.log(preview);
-
-        const posts = findPosts(data);
-
-        if (posts.length > 0) {
-          console.log(
-            `🔎 Possible Square posts found: ${posts.length}`
-          );
-
-          await processPosts(posts);
-        }
+      if (!text) {
+        return;
       }
-    } catch (error) {
+
       console.log(
-        `⚠️ Could not read JSON response: ${error.message}`
+        `📦 RESPONSE SIZE: ${text.length} bytes`
+      );
+
+      // Print first 4000 characters only.
+      console.log(
+        text.slice(0, 4000)
+      );
+
+      console.log("");
+      console.log(
+        "------------------------------------------"
+      );
+
+    } catch (error) {
+
+      console.log(
+        `⚠️ Could not read response: ${error.message}`
       );
     }
   });
 
-  // ------------------------------------------------
-  // CONSOLE LOGS FROM BINANCE PAGE
-  // ------------------------------------------------
+  // ==================================================
+  // PAGE ERRORS
+  // ==================================================
+
+  page.on("pageerror", error => {
+    console.log(
+      `⚠️ PAGE ERROR: ${error.message}`
+    );
+  });
+
+  // ==================================================
+  // CONSOLE
+  // ==================================================
 
   page.on("console", msg => {
+
     const text = msg.text();
 
     if (
-      text.includes("error") ||
-      text.includes("Error") ||
-      text.includes("square")
+      text.toLowerCase().includes("error") ||
+      text.toLowerCase().includes("square")
     ) {
-      console.log(`🌐 PAGE: ${text.slice(0, 1000)}`);
+      console.log(
+        `🌐 BINANCE PAGE: ${text.slice(0, 1500)}`
+      );
     }
   });
 
-  // ------------------------------------------------
-  // PAGE ERRORS
-  // ------------------------------------------------
+  // ==================================================
+  // TEST EACH CREATOR
+  // ==================================================
 
-  page.on("pageerror", error => {
-    console.log(`⚠️ PAGE ERROR: ${error.message}`);
-  });
+  for (let i = 0; i < CREATORS.length; i++) {
 
-  // ------------------------------------------------
-  // OPEN BINANCE SQUARE
-  // ------------------------------------------------
+    const creator = CREATORS[i];
 
-  console.log("");
-  console.log("==========================================");
-  console.log("🌐 OPENING BINANCE SQUARE");
-  console.log("==========================================");
+    console.log("");
+    console.log("");
+    console.log("==========================================");
+    console.log(`👤 CREATOR ${i + 1}/${CREATORS.length}`);
+    console.log(`👤 ${creator.name}`);
+    console.log("==========================================");
+    console.log(`🔗 ${creator.url}`);
+    console.log("");
 
-  try {
-    await page.goto(
-      "https://www.binance.com/en/square",
-      {
-        waitUntil: "domcontentloaded",
-        timeout: 60000
-      }
+    try {
+
+      await page.goto(
+        creator.url,
+        {
+          waitUntil: "domcontentloaded",
+          timeout: 60000
+        }
+      );
+
+      console.log(
+        `✅ Profile page loaded: ${creator.name}`
+      );
+
+    } catch (error) {
+
+      console.log(
+        `⚠️ Page navigation error: ${error.message}`
+      );
+    }
+
+    console.log(
+      "⏳ Waiting 15 seconds for Binance API..."
     );
 
-    console.log("✅ Binance Square page loaded");
-  } catch (error) {
+    await page.waitForTimeout(15000);
+
+    // Print page URL after redirects.
     console.log(
-      `⚠️ Page load warning: ${error.message}`
+      `📍 FINAL PAGE URL: ${page.url()}`
+    );
+
+    // Print page title.
+    try {
+      console.log(
+        `📄 PAGE TITLE: ${await page.title()}`
+      );
+    } catch (_) {}
+
+    console.log("");
+    console.log(
+      `✅ Finished diagnostic for ${creator.name}`
     );
   }
 
-  // Give Binance time to make API requests.
+  // ==================================================
+  // FINISHED
+  // ==================================================
+
   console.log("");
-  console.log("⏳ Waiting for Binance API responses...");
+  console.log("==========================================");
+  console.log("🏁 ALL 10 PROFILES TESTED");
+  console.log("==========================================");
+  console.log("");
+  console.log(
+    "⏳ Keeping browser alive for another 5 minutes..."
+  );
 
-  await page.waitForTimeout(30000);
-
-  // ------------------------------------------------
-  // CONTINUOUS MONITOR
-  // ------------------------------------------------
-
+  // Keep process alive.
   while (true) {
-    try {
-      console.log("");
-      console.log("🔄 Reloading Binance Square...");
+    await new Promise(resolve =>
+      setTimeout(resolve, 30000)
+    );
 
-      await page.reload({
-        waitUntil: "domcontentloaded",
-        timeout: 60000
-      });
-
-      console.log("⏳ Waiting for Binance API responses...");
-
-      await page.waitForTimeout(30000);
-    } catch (error) {
-      console.log(
-        `⚠️ Reload error: ${error.message}`
-      );
-
-      await new Promise(resolve =>
-        setTimeout(resolve, 10000)
-      );
-    }
+    console.log(
+      "💓 Monitor still running..."
+    );
   }
 }
 
-// --------------------------------------------------
+// ==================================================
 // START
-// --------------------------------------------------
+// ==================================================
 
 startMonitor().catch(async error => {
+
   console.log("");
+  console.log("==========================================");
   console.log("❌ FATAL ERROR");
+  console.log("==========================================");
+
   console.log(error);
 
   try {
     await sendTelegram(
-      "❌ <b>Binance Square monitor crashed</b>\n\n" +
-      escapeHtml(error.message)
+      "❌ Binance Square monitor crashed\n\n" +
+      error.message
     );
   } catch (_) {}
 
-  // Keep Render alive briefly so logs can be read.
-  setTimeout(() => process.exit(1), 3000);
+  setTimeout(() => {
+    process.exit(1);
+  }, 3000);
 });
