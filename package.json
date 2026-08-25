@@ -1,6 +1,7 @@
 {
   "name": "binance-square-telegram",
   "version": "1.0.0",
+  "description": "Binance Square creator monitor",
   "main": "monitor.js",
   "scripts": {
     "start": "node monitor.js"
