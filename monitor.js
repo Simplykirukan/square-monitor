@@ -1,12 +1,7 @@
 const { chromium } = require("playwright");
+const http = require("http");
 
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-const PORT = process.env.PORT || 10000;
-
-// =====================================================
-// 10 BINANCE SQUARE CREATORS
-// =====================================================
+const PORT = Number(process.env.PORT || 10000);
 
 const CREATORS = [
     "SaMnAtIoN00",
@@ -21,342 +16,101 @@ const CREATORS = [
     "Chungorcrypto"
 ];
 
-// =====================================================
-// STATE
-// =====================================================
+// --------------------------------------------------
+// HEALTH SERVER
+// --------------------------------------------------
 
-const seenPosts = new Set();
+const server = http.createServer((req, res) => {
+    res.writeHead(200, {
+        "Content-Type": "text/plain"
+    });
 
-// =====================================================
-// TELEGRAM
-// =====================================================
+    res.end("BINANCE SQUARE DIAGNOSTIC RUNNING");
+});
 
-async function sendTelegram(message) {
+server.listen(PORT, "0.0.0.0", () => {
+    console.log(`🌐 Health server running on port ${PORT}`);
+});
 
-    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-        console.log("❌ Telegram environment variables missing");
+// --------------------------------------------------
+// TELEGRAM TEST
+// --------------------------------------------------
+
+async function telegramTest() {
+
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+
+    if (!token || !chatId) {
+        console.log("⚠️ Telegram variables not found");
         return;
     }
 
     try {
 
-        const url =
-            `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
-
-        const response = await fetch(url, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                chat_id: TELEGRAM_CHAT_ID,
-                text: message,
-                parse_mode: "HTML",
-                disable_web_page_preview: false
-            })
-        });
+        const response = await fetch(
+            `https://api.telegram.org/bot${token}/sendMessage`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    chat_id: chatId,
+                    text: "🔧 Binance Square diagnostic monitor started."
+                })
+            }
+        );
 
         const data = await response.json();
 
-        if (data.ok) {
-            console.log("✅ Telegram message sent");
-        } else {
-            console.log("❌ Telegram error:", JSON.stringify(data));
-        }
+        console.log(
+            data.ok
+                ? "✅ Telegram test successful"
+                : "❌ Telegram test failed"
+        );
 
     } catch (error) {
 
-        console.log("❌ Telegram request failed:", error.message);
+        console.log(
+            "❌ Telegram error:",
+            error.message
+        );
 
     }
 }
 
-// =====================================================
-// HEALTH SERVER
-// =====================================================
-
-const http = require("http");
-
-const server = http.createServer((req, res) => {
-
-    res.writeHead(200, {
-        "Content-Type": "text/plain"
-    });
-
-    res.end("BINANCE SQUARE MONITOR ACTIVE");
-
-});
-
-server.listen(PORT, "0.0.0.0", () => {
-
-    console.log(`🌐 Health server running on port ${PORT}`);
-
-});
-
-// =====================================================
-// FIND CREATOR
-// =====================================================
-
-function creatorMatches(post) {
-
-    if (!post) return false;
-
-    const possibleNames = [
-
-        post.username,
-        post.authorName,
-        post.authorUsername,
-        post.nickname,
-        post.handle,
-        post.creatorName,
-        post.userName
-
-    ]
-        .filter(Boolean)
-        .map(x => String(x).toLowerCase());
-
-    return CREATORS.some(
-        creator =>
-            possibleNames.includes(creator.toLowerCase())
-    );
-}
-
-// =====================================================
-// GET CREATOR NAME
-// =====================================================
-
-function getCreatorName(post) {
-
-    return (
-        post.username ||
-        post.authorName ||
-        post.authorUsername ||
-        post.nickname ||
-        post.handle ||
-        post.creatorName ||
-        post.userName ||
-        "Unknown Creator"
-    );
-
-}
-
-// =====================================================
-// GET POST CONTENT
-// =====================================================
-
-function getPostText(post) {
-
-    return (
-        post.content ||
-        post.body ||
-        post.title ||
-        post.subTitle ||
-        post.text ||
-        ""
-    );
-
-}
-
-// =====================================================
-// GET POST ID
-// =====================================================
-
-function getPostId(post) {
-
-    return String(
-        post.id ||
-        post.postId ||
-        post.feedId ||
-        post.articleId ||
-        ""
-    );
-
-}
-
-// =====================================================
-// GET POST URL
-// =====================================================
-
-function getPostUrl(post) {
-
-    if (post.webLink) {
-        return post.webLink;
-    }
-
-    const id = getPostId(post);
-
-    if (id) {
-        return `https://www.binance.com/en/square/post/${id}`;
-    }
-
-    return "https://www.binance.com/en/square";
-
-}
-
-// =====================================================
-// RED PACKET DETECTOR
-// =====================================================
-
-function isRedPacket(text) {
-
-    const keywords = [
-        "packet",
-        "red packet",
-        "redpack",
-        "crypto box",
-        "box code",
-        "claim",
-        "code",
-        "🧧"
-    ];
-
-    const lower = text.toLowerCase();
-
-    return keywords.some(word =>
-        lower.includes(word.toLowerCase())
-    );
-
-}
-
-// =====================================================
-// SEND POST TO TELEGRAM
-// =====================================================
-
-async function sendPostToTelegram(post) {
-
-    const creator = getCreatorName(post);
-    const text = getPostText(post);
-    const url = getPostUrl(post);
-
-    let message;
-
-    if (isRedPacket(text)) {
-
-        message =
-            `🧧 <b>RED PACKET ALERT!</b>\n\n` +
-            `👤 <b>${creator}</b>\n\n` +
-            `${escapeHtml(text).substring(0, 3000)}\n\n` +
-            `⚡ <a href="${url}">OPEN IN BINANCE</a>`;
-
-    } else {
-
-        message =
-            `📢 <b>NEW BINANCE SQUARE POST</b>\n\n` +
-            `👤 <b>${creator}</b>\n\n` +
-            `${escapeHtml(text).substring(0, 3000)}\n\n` +
-            `⚡ <a href="${url}">OPEN IN BINANCE</a>`;
-
-    }
-
-    await sendTelegram(message);
-
-}
-
-// =====================================================
-// HTML ESCAPE
-// =====================================================
-
-function escapeHtml(text) {
-
-    return String(text)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-
-}
-
-// =====================================================
-// EXTRACT POSTS FROM PAGE
-// =====================================================
-
-async function extractPosts(page) {
-
-    return await page.evaluate(() => {
-
-        const result = [];
-
-        function walk(value) {
-
-            if (!value || typeof value !== "object") {
-                return;
-            }
-
-            if (Array.isArray(value)) {
-
-                for (const item of value) {
-                    walk(item);
-                }
-
-                return;
-            }
-
-            // Detect Binance Square post objects
-            if (
-                value.id &&
-                (
-                    value.webLink ||
-                    value.shareLink ||
-                    value.authorName ||
-                    value.username ||
-                    value.squareAuthorId
-                )
-            ) {
-
-                result.push(value);
-
-            }
-
-            for (const key of Object.keys(value)) {
-
-                try {
-                    walk(value[key]);
-                } catch (_) {}
-
-            }
-
-        }
-
-        walk(window.__BINANCE_DATA__);
-
-        return result;
-
-    });
-
-}
-
-// =====================================================
-// MAIN SCANNER
-// =====================================================
-
-async function startMonitor() {
+// --------------------------------------------------
+// MAIN
+// --------------------------------------------------
+
+async function main() {
 
     console.log("");
     console.log("==========================================");
-    console.log("🚀 BINANCE SQUARE → TELEGRAM");
-    console.log("==========================================");
-    console.log("👥 10 CREATOR MONITOR");
+    console.log("🔧 BINANCE SQUARE API DIAGNOSTIC");
     console.log("==========================================");
 
-    CREATORS.forEach((creator, index) => {
+    console.log("");
+    console.log("👥 Creators we need to identify:");
 
-        console.log(`${index + 1}. ${creator}`);
-
+    CREATORS.forEach((name, index) => {
+        console.log(`${index + 1}. ${name}`);
     });
 
+    console.log("");
     console.log("==========================================");
 
-    await sendTelegram(
-        "🚀 <b>Binance Square Monitor Started</b>\n\n" +
-        "👥 Monitoring 10 creators..."
-    );
+    await telegramTest();
+
+    console.log("");
+    console.log("🌐 Starting Chromium...");
 
     const browser = await chromium.launch({
-    headless: true,
-    channel: "chromium"
-});
+        headless: true
+    });
 
     const context = await browser.newContext({
-
         userAgent:
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
             "AppleWebKit/537.36 (KHTML, like Gecko) " +
@@ -368,16 +122,15 @@ async function startMonitor() {
         },
 
         locale: "en-US"
-
     });
 
     const page = await context.newPage();
 
-    // =================================================
-    // CAPTURE BINANCE API RESPONSES
-    // =================================================
+    // --------------------------------------------------
+    // NETWORK RESPONSE LISTENER
+    // --------------------------------------------------
 
-    page.on("response", async response => {
+    page.on("response", async (response) => {
 
         const url = response.url();
 
@@ -385,6 +138,7 @@ async function startMonitor() {
             return;
         }
 
+        // We are interested in Binance API calls.
         if (
             !url.includes("/bapi/") &&
             !url.includes("/api/")
@@ -392,84 +146,221 @@ async function startMonitor() {
             return;
         }
 
+        console.log("");
+        console.log("==========================================");
+        console.log("📡 BINANCE API RESPONSE");
+        console.log("==========================================");
+
+        console.log(
+            "URL:",
+            url.substring(0, 500)
+        );
+
+        console.log(
+            "STATUS:",
+            response.status()
+        );
+
         try {
 
             const contentType =
                 response.headers()["content-type"] || "";
 
+            console.log(
+                "CONTENT TYPE:",
+                contentType
+            );
+
             if (!contentType.includes("json")) {
+                console.log(
+                    "⏭️ Not JSON - skipped"
+                );
                 return;
             }
 
             const data = await response.json();
 
-            // Store API response globally in browser
-            await page.evaluate((data) => {
-
-                window.__BINANCE_DATA__ = data;
-
-            }, data);
-
-            const posts = await extractPosts(page);
-
-            if (!posts.length) {
-                return;
-            }
-
             console.log(
-                `📦 Binance response contains ${posts.length} post objects`
+                "✅ JSON RECEIVED"
             );
 
-            // =================================================
-            // CHECK POSTS
-            // =================================================
+            // --------------------------------------------------
+            // FIND POST OBJECTS RECURSIVELY
+            // --------------------------------------------------
+
+            const posts = [];
+
+            function scan(value) {
+
+                if (!value) {
+                    return;
+                }
+
+                if (Array.isArray(value)) {
+
+                    for (const item of value) {
+                        scan(item);
+                    }
+
+                    return;
+                }
+
+                if (
+                    typeof value !== "object"
+                ) {
+                    return;
+                }
+
+                // A likely Square post
+                if (
+                    value.id &&
+                    (
+                        value.webLink ||
+                        value.shareLink ||
+                        value.authorName ||
+                        value.squareAuthorId
+                    )
+                ) {
+
+                    posts.push(value);
+                }
+
+                for (const key of Object.keys(value)) {
+
+                    try {
+                        scan(value[key]);
+                    } catch (_) {}
+
+                }
+            }
+
+            scan(data);
+
+            console.log(
+                `📦 POST OBJECTS FOUND: ${posts.length}`
+            );
+
+            // --------------------------------------------------
+            // PRINT FIRST 10 UNIQUE POSTS
+            // --------------------------------------------------
+
+            const printed = new Set();
+
+            let count = 0;
 
             for (const post of posts) {
 
-                const id = getPostId(post);
+                const id = String(
+                    post.id || ""
+                );
 
-                if (!id) continue;
-
-                // Only our 10 creators
-                if (!creatorMatches(post)) {
+                if (!id || printed.has(id)) {
                     continue;
                 }
 
-                const creator = getCreatorName(post);
+                printed.add(id);
 
+                console.log("");
                 console.log(
-                    `🎯 MATCH: ${creator} → ${id}`
+                    `--------- POST ${count + 1} ---------`
                 );
 
-                // First time = register
-                if (!seenPosts.has(id)) {
+                console.log(
+                    "ID:",
+                    post.id || "N/A"
+                );
 
-                    seenPosts.add(id);
+                console.log(
+                    "AUTHOR NAME:",
+                    post.authorName || "N/A"
+                );
 
-                    console.log(
-                        `🆕 NEW POST: ${creator} → ${id}`
-                    );
+                console.log(
+                    "USERNAME:",
+                    post.username || "N/A"
+                );
 
-                    await sendPostToTelegram(post);
+                console.log(
+                    "AUTHOR USERNAME:",
+                    post.authorUsername || "N/A"
+                );
 
+                console.log(
+                    "NICKNAME:",
+                    post.nickname || "N/A"
+                );
+
+                console.log(
+                    "HANDLE:",
+                    post.handle || "N/A"
+                );
+
+                console.log(
+                    "CREATOR NAME:",
+                    post.creatorName || "N/A"
+                );
+
+                console.log(
+                    "SQUARE AUTHOR ID:",
+                    post.squareAuthorId || "N/A"
+                );
+
+                console.log(
+                    "AUTHOR LINK:",
+                    post.authorLink || "N/A"
+                );
+
+                console.log(
+                    "WEB LINK:",
+                    post.webLink || "N/A"
+                );
+
+                console.log(
+                    "SHARE LINK:",
+                    post.shareLink || "N/A"
+                );
+
+                console.log(
+                    "TITLE:",
+                    post.title || "N/A"
+                );
+
+                console.log(
+                    "CONTENT:",
+                    String(
+                        post.content ||
+                        post.body ||
+                        post.subTitle ||
+                        ""
+                    ).substring(0, 300)
+                );
+
+                count++;
+
+                if (count >= 10) {
+                    break;
                 }
-
             }
 
         } catch (error) {
 
-            // Ignore non-JSON / inaccessible responses
+            console.log(
+                "❌ Could not read response:",
+                error.message
+            );
 
         }
 
     });
 
-    // =================================================
+    // --------------------------------------------------
     // OPEN BINANCE SQUARE
-    // =================================================
+    // --------------------------------------------------
 
     console.log("");
-    console.log("🌐 Opening Binance Square...");
+    console.log("==========================================");
+    console.log("🌐 OPENING BINANCE SQUARE");
+    console.log("==========================================");
 
     try {
 
@@ -481,25 +372,35 @@ async function startMonitor() {
             }
         );
 
+        console.log(
+            "✅ Binance Square page loaded"
+        );
+
     } catch (error) {
 
         console.log(
-            "⚠️ Initial page navigation:",
+            "❌ Page error:",
             error.message
         );
 
     }
 
-    // =================================================
-    // CONTINUOUS SCAN
-    // =================================================
+    // --------------------------------------------------
+    // KEEP PAGE ALIVE
+    // --------------------------------------------------
 
     while (true) {
 
         console.log("");
-        console.log("==========================================");
-        console.log("🔎 SCANNING BINANCE SQUARE");
-        console.log("==========================================");
+        console.log(
+            "⏳ Waiting for Binance API responses..."
+        );
+
+        await page.waitForTimeout(30000);
+
+        console.log(
+            "🔄 Reloading Binance Square..."
+        );
 
         try {
 
@@ -517,31 +418,15 @@ async function startMonitor() {
 
         }
 
-        // Give Binance time to load feed/API
-        await page.waitForTimeout(10000);
-
-        console.log(
-            `📊 Known posts: ${seenPosts.size}`
-        );
-
-        console.log(
-            "⏳ Waiting 15 seconds before next scan..."
-        );
-
-        await page.waitForTimeout(15000);
-
     }
 
 }
 
-// =====================================================
-// START
-// =====================================================
+main().catch(error => {
 
-startMonitor().catch(error => {
-
-    console.error("❌ FATAL ERROR");
-    console.error(error);
+    console.log("");
+    console.log("❌ FATAL ERROR");
+    console.log(error);
 
     process.exit(1);
 
